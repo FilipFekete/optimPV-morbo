@@ -323,4 +323,6 @@ def BTD_model(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate=True,
     else:
         # return electron and hole concentrations
         return n_e, n_h
+    
+
 

@@ -1,4 +1,4 @@
-"""Provides general functionality for Agent objects for non ideal diode simulations"""
+"""Provides general functionality for Agent objects for Rate Equation simulations"""
 ######### Package Imports #########################################################################
 
 import os, uuid, sys, copy, warnings
@@ -6,13 +6,13 @@ import numpy as np
 import pandas as pd
 from scipy import interpolate, constants
 
-try: 
-    import pvlib
-    from pvlib.pvsystem import i_from_v
-    got_pvlib = True
-except:
-    got_pvlib = False
-    warnings.warn('pvlib not installed, using scipy for diode equation')
+# try: 
+#     import pvlib
+#     from pvlib.pvsystem import i_from_v
+#     got_pvlib = True
+# except:
+#     got_pvlib = False
+#     warnings.warn('pvlib not installed, using scipy for diode equation')
 
 from optimpv import *
 from optimpv.general.general import calc_metric, loss_function
