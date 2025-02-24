@@ -350,11 +350,30 @@ def plot_1d_posteriors(params, Nres, objective_name, model, loss, best_parameter
     plt.tight_layout()
     return fig, ax
 
-def get_df_from_ax(params, objective_name, optimizer):
+def get_df_from_ax(params, optimizer):
+    """_summary_
+
+    Parameters
+    ----------
+    params : _type_
+        _description_
+    optimizer : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+
+    Raises
+    ------
+    ValueError
+        _description_
+    """    
     ax_client = optimizer.ax_client
 
     data = ax_client.experiment.fetch_data().df
-    
+    objective_names = optimizer.all_metrics
     dumdic = {}
     # create a dic with the keys of the parameters
     if isinstance(ax_client.experiment.trials[0], BatchTrial):# check if trial is a BatchTrial
@@ -380,9 +399,10 @@ def get_df_from_ax(params, objective_name, optimizer):
                     dumdic[key].append(ax_client.experiment.trials[i].arm.parameters[key])
 
     
-    dumdic['iteration'] = list(data[data['metric_name'] == objective_name]['trial_index'])
+    for objective_name in objective_names:
+        dumdic[objective_name] = list(data[data['metric_name'] == objective_name]['mean'])
 
-    dumdic[objective_name] = list(data[data['metric_name'] == objective_name]['mean'])
+    dumdic['iteration'] = list(data[data['metric_name'] == objective_name]['trial_index'])
 
     df = pd.DataFrame(dumdic)
 
@@ -401,15 +421,13 @@ def get_df_from_ax(params, objective_name, optimizer):
                     raise ValueError('Trying to rescale a parameter that is not int or float')
     return df
 
-def plot_density_exploration(params, objective_name, optimizer = None, best_parameters = None, params_orig = None, optimizer_type = 'ax', **kwargs):
+def plot_density_exploration(params, optimizer = None, best_parameters = None, params_orig = None, optimizer_type = 'ax', **kwargs):
     """Generate density plots to visualize the exploration of parameter space.
 
     Parameters
     ----------
     params : list of FitParam() objects
         List of parameters to explore.
-    objective_name : str
-        Name of the objective to evaluate.
     optimizer : object, optional
         Optimizer object, by default None.
     best_parameters : dict, optional
@@ -438,7 +456,7 @@ def plot_density_exploration(params, objective_name, optimizer = None, best_para
     levels = kwargs.get('levels', 100)
     
     if optimizer_type == 'ax':
-        df = get_df_from_ax(params, objective_name, optimizer)
+        df = get_df_from_ax(params, optimizer)
         
         names = []
         log_scale = []
