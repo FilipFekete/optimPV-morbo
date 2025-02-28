@@ -257,15 +257,55 @@ class EGBOAcquisition(Acquisition):
         xl = bounds[0].cpu().numpy()
         xu = bounds[1].cpu().numpy()
 
+        # Define the pymoo problem with constraints
+        if inequality_constraints and len(inequality_constraints) > 0:
+            n_constr = len(inequality_constraints)
+            
+            # Define the constraint evaluation function
+            def evaluate_constraints(x):
+                # Convert numpy array to tensor
+                x_tensor = torch.tensor(x, **tkwargs)
+                
+                # Initialize constraint values
+                g = np.zeros((x.shape[0], n_constr))
+                
+                # For each constraint
+                for i, (indices, coefficients, rhs) in enumerate(inequality_constraints):
+                    # Convert BoTorch constraint (sum_i coef[i]*x[idx[i]] >= rhs)
+                    # to pymoo constraint (rhs - sum_i coef[i]*x[idx[i]] <= 0)
+                    idx = indices.cpu().numpy()
+                    coef = coefficients.cpu().numpy()
+                    
+                    # Calculate constraint value for each point
+                    for j in range(x.shape[0]):
+                        constraint_value = rhs - np.sum(coef * x[j, idx])
+                        g[j, i] = constraint_value
+                        
+                return g
+            
+            # Create pymoo problem with constraints
+            pymooproblem = Problem(n_var=n_var, n_obj=n_obj, n_constr=n_constr,
+                                   xl=xl, xu=xu, evaluate_constraints=evaluate_constraints)
+        else:
+            # No constraints case
+            n_constr = 0
+            pymooproblem = Problem(n_var=n_var, n_obj=n_obj, n_constr=n_constr, 
+                                   xl=xl, xu=xu)
+            
         # define the pymoo problem
-        pymooproblem = Problem(n_var=n_var, n_obj=n_obj, n_constr=n_constr, 
-                      xl=xl, xu=xu)
+        # pymooproblem = Problem(n_var=n_var, n_obj=n_obj, n_constr=n_constr, 
+        #               xl=xl, xu=xu)
 
         algorithm.setup(pymooproblem, termination=NoTermination())
         
         # set the 1st population to the current evaluated population
         pop = algorithm.ask()
         pop.set("F", pareto_y)
+
+
+
+
+
         # pop.set("G", pareto_y)
         algorithm.tell(infills=pop)
 

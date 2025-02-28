@@ -431,6 +431,10 @@ class axBOtorchOptimizer():
             logger.info('Starting optimization with %d batches and a total of %d trials',sum(np.asarray(self.n_batches)),total_trials)
         count = 1
         while n < total_trials:
+            if verbose_logging and n != 0:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info(f'Starting batch {round_floats_for_logging(count)} with {round_floats_for_logging(self.batch_size[np.argmax(n_step_points>n)])} trials')
             # check the current batch size
             if n == 0:
                 old_batch_size = self.batch_size[np.argmax(n_step_points>n)]
@@ -438,15 +442,15 @@ class axBOtorchOptimizer():
             else:
                 old_batch_size = curr_batch_size
                 # logger.info('Finished batch %d and starting batch %d with %d trials',count-1,count,curr_batch_size)
-            curr_batch_size = self.batch_size[np.argmax(n_step_points>n)]
+            # curr_batch_size = self.batch_size[np.argmax(n_step_points>n)]
 
-            if verbose_logging:
-                logging_level = 20
-                logger.setLevel(logging_level)
-                if n == 0:
-                    logger.info(f'Starting batch {round_floats_for_logging(count)} with {round_floats_for_logging(curr_batch_size)} trials')
-                else:
-                    logger.info(f'Finished batch {round_floats_for_logging(count)} and starting batch {round_floats_for_logging(count+1)} with {round_floats_for_logging(curr_batch_size)} trials')
+            # if verbose_logging:
+            #     logging_level = 20
+            #     logger.setLevel(logging_level)
+            #     if n == 0:
+            #         logger.info(f'Starting batch {round_floats_for_logging(count)} with {round_floats_for_logging(curr_batch_size)} trials')
+            #     else:
+            #         logger.info(f'Finished batch {round_floats_for_logging(count)} and starting batch {round_floats_for_logging(count+1)} with {round_floats_for_logging(curr_batch_size)} trials')
 
             curr_batch_size = self.batch_size[np.argmax(n_step_points>n)]
 
@@ -463,7 +467,13 @@ class axBOtorchOptimizer():
                 curr_batch_size = curr_batch_size - (n-total_trials)
             
             scheduler.run_n_trials(max_trials=1)
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info('Finished batch %d', count)
             count += 1
+            
+
             
             
         q.close()
