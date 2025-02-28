@@ -220,7 +220,7 @@ class MockJobRunner(Runner):  # Deploys trials to external system.
 
         return status_dict
     
-class BraninForMockJobMetric(Metric):  # Pulls data for trial from external system.
+class MockJobMetric(Metric):  # Pulls data for trial from external system.
     def __init__(self, name = None, agents = None, pool = None, tmp_dir = None, parallel_agents = True, **kwargs):
         self.agents = agents
         self.pool = pool

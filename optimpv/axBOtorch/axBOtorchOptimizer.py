@@ -376,7 +376,6 @@ class axBOtorchOptimizer():
 
         # create generation strategy
         gs = self.create_generation_strategy_batch()
-        # gs.use_batch_trials = True
 
         # create ax client
         if self.ax_client is None:
@@ -390,15 +389,15 @@ class axBOtorchOptimizer():
 
         q = Pool(max_number_cores)
         if not is_multi_obj:
-            # obj = Objective(metric=BraninForMockJobMetric(name=list(_obj.keys())[0]+'_', agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents), minimize=True)
-            obj = Objective(metric=BraninForMockJobMetric(name=list(_obj.keys())[0], agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents), minimize=_obj[list(_obj.keys())[0]].minimize)
+            # obj = Objective(metric=MockJobMetric(name=list(_obj.keys())[0]+'_', agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents), minimize=True)
+            obj = Objective(metric=MockJobMetric(name=list(_obj.keys())[0], agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents), minimize=_obj[list(_obj.keys())[0]].minimize)
         else:
             objectives_list = []
             objectives_thresholds = []
 
             for key in _obj.keys():
                 lower_is_better = _obj[key].minimize
-                metric = BraninForMockJobMetric(name=key, agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents,lower_is_better=lower_is_better)
+                metric = MockJobMetric(name=key, agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents,lower_is_better=lower_is_better)
                 objectives_list.append(Objective(metric=metric, minimize=lower_is_better))
                 objectives_thresholds.append(ObjectiveThreshold(metric=metric, bound=_obj[key].threshold,relative=False))
             obj = MultiObjective(objectives=objectives_list, objective_thresholds=objectives_thresholds)
@@ -427,8 +426,10 @@ class axBOtorchOptimizer():
         n = 0
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         n_step_points = np.cumsum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
+
         if verbose_logging:
             logger.info('Starting optimization with %d batches and a total of %d trials',sum(np.asarray(self.n_batches)),total_trials)
+
         count = 1
         while n < total_trials:
             if verbose_logging and n != 0:
@@ -438,19 +439,8 @@ class axBOtorchOptimizer():
             # check the current batch size
             if n == 0:
                 old_batch_size = self.batch_size[np.argmax(n_step_points>n)]
-                # logger.info('Starting first batch with %d trials',old_batch_size)
             else:
                 old_batch_size = curr_batch_size
-                # logger.info('Finished batch %d and starting batch %d with %d trials',count-1,count,curr_batch_size)
-            # curr_batch_size = self.batch_size[np.argmax(n_step_points>n)]
-
-            # if verbose_logging:
-            #     logging_level = 20
-            #     logger.setLevel(logging_level)
-            #     if n == 0:
-            #         logger.info(f'Starting batch {round_floats_for_logging(count)} with {round_floats_for_logging(curr_batch_size)} trials')
-            #     else:
-            #         logger.info(f'Finished batch {round_floats_for_logging(count)} and starting batch {round_floats_for_logging(count+1)} with {round_floats_for_logging(curr_batch_size)} trials')
 
             curr_batch_size = self.batch_size[np.argmax(n_step_points>n)]
 
@@ -472,16 +462,13 @@ class axBOtorchOptimizer():
                 logger.setLevel(logging_level)
                 logger.info('Finished batch %d', count)
             count += 1
-            
-
-            
-            
+              
         q.close()
         q.join()
         if verbose_logging:
             logging_level = 20
             logger.setLevel(logging_level)
-            logger.info('Finished optimization with %d number of batches and a total of %d trials',len(self.n_batches),total_trials)
+            logger.info('Finished optimization')
 
         # clean up the tmp_dir
         if not keep_tmp_dir:
