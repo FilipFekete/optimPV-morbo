@@ -38,12 +38,12 @@ class TurboState:
     dim: int = 1
     batch_size: int = 1
     length: float = 0.8
-    length_min: float = 0.5**7
-    length_max: float = 1.6
+    length_min: float = 1e-6 #0.5**7
+    length_max: float = 100 #1.6
     failure_counter: int = 0
     failure_tolerance: int = 0  # Will be set in post_init
     success_counter: int = 0
-    success_tolerance: int = 10  # The original paper uses 3
+    success_tolerance: int = 3 #10  # The original paper uses 3
     best_value: float = -float("inf")
     restart_triggered: bool = False
 
@@ -53,23 +53,39 @@ class TurboState:
         )
 
 
-def update_state(state: TurboState, Y_next: Tensor) -> TurboState:
+def update_state(state: TurboState, Y_next: Tensor, minimize: bool = False) -> TurboState:
     """Update the TurboState based on new function evaluations.
 
     Args:
         state: The current TurboState.
         Y_next: The new function values.
+        minimize: Whether to minimize the function.
 
     Returns:
         The updated TurboState.
     """
-    # Update best value if improved
-    if torch.max(Y_next) > state.best_value + 1e-3 * math.fabs(state.best_value):
-        state.success_counter += 1
-        state.failure_counter = 0
+    if minimize:
+        # For minimization problems
+        if torch.min(Y_next) < state.best_value - 1e-3 * math.fabs(state.best_value):
+            state.success_counter += 1
+            state.failure_counter = 0
+        else:
+            state.success_counter = 0
+            state.failure_counter += 1
+            
+        # Update best value (minimum for minimization)
+        state.best_value = min(state.best_value, torch.min(Y_next).item())
     else:
-        state.success_counter = 0
-        state.failure_counter += 1
+        # Original code for maximization
+        if torch.max(Y_next) > state.best_value + 1e-3 * math.fabs(state.best_value):
+            state.success_counter += 1
+            state.failure_counter = 0
+        else:
+            state.success_counter = 0
+            state.failure_counter += 1
+            
+        # Update best value (maximum for maximization)
+        state.best_value = max(state.best_value, torch.max(Y_next).item())
 
     # Update trust region size based on counters
     if state.success_counter == state.success_tolerance:  # Expand trust region
@@ -79,9 +95,7 @@ def update_state(state: TurboState, Y_next: Tensor) -> TurboState:
         state.length /= 2.0
         state.failure_counter = 0
 
-    # Update best_value and check if restart is needed
-    print(torch.max(Y_next).item())
-    state.best_value = max(state.best_value, torch.max(Y_next).item())
+    # Check if restart is needed
     if state.length < state.length_min:
         state.restart_triggered = True
     
@@ -124,15 +138,13 @@ class TURBOAcquisition(Acquisition):
 
         # Initialize TuRBO state
         self.batch_size = torch_opt_config.model_gen_options.get("batch_size", 1)
-        
+        print(self.batch_size)
         # Get dimension safely, handling both list and tensor bounds
         if isinstance(search_space_digest.bounds, list):
             dim = len(search_space_digest.bounds[0])  # Number of parameters
         else:
             dim = search_space_digest.bounds.shape[0]
         
-        # Initialize state as an instance variable
-        self.state = TurboState(dim=dim, batch_size=self.batch_size)
         
         # Store TuRBO-specific options separately
         self.turbo_options = {
@@ -142,7 +154,18 @@ class TURBOAcquisition(Acquisition):
             "num_restarts": options.get("num_restarts", 10),
             "state_file": options.get("state_file", None),
             "save_on_update": options.get("save_on_update", False),
+            "minimize": options.get("minimize", False),
         }
+        self.minimize = self.turbo_options.get("minimize", False)
+        print(self.turbo_options.get("minimize", False))
+        # Initialize state as an instance variable
+        if self.turbo_options.get("minimize", False):
+            print("minimizing")
+            self.state = TurboState(dim=dim, batch_size=self.batch_size, best_value=float("inf"))
+            print(self.state)
+        else:
+            self.state = TurboState(dim=dim, batch_size=self.batch_size)
+        
         print(f"TuRBO options: {self.turbo_options}")
         # Load state from file if specified
         state_file = self.turbo_options.get("state_file")
@@ -152,7 +175,7 @@ class TURBOAcquisition(Acquisition):
         # Remove TuRBO-specific options from what gets passed to the parent
         parent_options = {k: v for k, v in options.items() 
                          if k not in ["acqf_type", "n_candidates", "state_file", 
-                                     "save_on_update", "raw_samples", "num_restarts"]}
+                                     "save_on_update", "raw_samples", "num_restarts","minimize"]}
         # remove them from the options passed to the parent class
         # self.options = parent_options
         # Track X and Y history for TuRBO's local optimization
@@ -162,8 +185,8 @@ class TURBOAcquisition(Acquisition):
         # Pass qLogNoisyExpectedImprovement as the acquisition function class instead of None
         # This prevents issubclass() errors in Ax's internal code
         # remove turbo options from the options passed to the parent class
-        parent_options = {k: v for k, v in options.items()
-                          if k not in ["acqf_type", "n_candidates", "state_file", "save_on_update"]}
+        # parent_options = {k: v for k, v in options.items()
+        #                   if k not in ["acqf_type", "n_candidates", "state_file", "save_on_update"]}
         super().__init__(
             surrogate=surrogate_f,
             search_space_digest=search_space_digest,
@@ -231,6 +254,7 @@ class TURBOAcquisition(Acquisition):
         raw_samples: int = 512,
         acqf_type: str = "ts",
         n_candidates: Optional[int] = None,
+        minimize: bool = False,
     ) -> Tensor:
         """Generate a batch of candidates within the trust region.
 
@@ -255,7 +279,10 @@ class TURBOAcquisition(Acquisition):
             n_candidates = min(5000, max(2000, 200 * dim))
 
         # Scale the TR to be proportional to the lengthscales
-        x_center = X[Y.argmax(), :].clone()
+        if self.minimize:
+            x_center = X[Y.argmin(), :].clone()
+        else:
+            x_center = X[Y.argmax(), :].clone()
         
         # Get lengthscales from the model
         if isinstance(model, ModelListGP):
@@ -289,7 +316,7 @@ class TURBOAcquisition(Acquisition):
         if acqf_type == "ts":
             # Thompson Sampling
             dim = X.shape[-1]
-            sobol = SobolEngine(dim, scramble=True, seed=np.random.randint(10000))
+            sobol = SobolEngine(dim, scramble=True, )#seed=np.random.randint(10000))
             pert = sobol.draw(n_candidates).to(dtype=dtype, device=device)
             pert = tr_lb + (tr_ub - tr_lb) * pert
 
@@ -304,21 +331,32 @@ class TURBOAcquisition(Acquisition):
             X_cand[mask] = pert[mask]
 
             # Sample from the posterior
-            thompson_sampling = MaxPosteriorSampling(model=model, replacement=False)
+            if minimize:
+                # For minimization: use a negative objective
+                from botorch.acquisition.objective import ScalarizedObjective
+                weights = torch.tensor([-1.0], device=device, dtype=dtype)
+                obj = ScalarizedObjective(weights=weights)
+                thompson_sampling = MaxPosteriorSampling(model=model, replacement=False, objective=obj)
+            else:
+                # Original code for maximization
+                thompson_sampling = MaxPosteriorSampling(model=model, replacement=False)
+                
             with torch.no_grad():
                 X_next = thompson_sampling(X_cand, num_samples=self.batch_size)
 
         elif acqf_type == "ei":
             # Expected Improvement
             from botorch.optim import optimize_acqf
-            
-            best_f = Y.max().item()
+            if minimize:
+                best_f = Y.min().item()
+            else:
+                best_f = Y.max().item()
             
             # Use qLogExpectedImprovement for better numerical stability
             acq_func = qLogExpectedImprovement(
                 model=model,
                 best_f=best_f,
-            )
+            )#
             
             X_next, acq_value = optimize_acqf(
                 acq_function=acq_func,
@@ -375,65 +413,24 @@ class TURBOAcquisition(Acquisition):
         
         X = torch.cat(X, dim=0)  # [batch_size, dim]
         Y = torch.cat(Y, dim=0)  # [batch_size, 1]
-        # self.X_history = X
-        # self.Y_history = Y
-        # Check for first run
-        if self.X_history is None:
-            # First run, initialize history with all current data
-            self.update_history(X, Y)
-            # Initialize best value from current data
-            if len(Y) > 0:
-                self.state.best_value = Y.max().item()
-                logger.info(f"First run: Set best value to {self.state.best_value:.4f}")
+        
+        if X.shape[0] == 0 or Y.shape[0] == 0:
+            raise ValueError("No training data available in the surrogate model.")
         else:
-            # Not first run, check for new evaluations since last call
-            if len(X) > len(self.X_history):
-                # Get the most recent batch of data
-                new_indices = list(range(len(self.X_history), len(X)))
-                new_X = X[new_indices]
-                new_Y = Y[new_indices]
-                logger.info(f"Found {len(new_indices)} new evaluations, current best: {self.state.best_value:.4f}")
-                
-                # Update the TuRBO state with the new evaluations
-                self.update_state_from_Y(new_Y)
-                
-                # Now add the new points to history
-                self.update_history(new_X, new_Y)
-                
-                logger.info(f"Updated TuRBO state: Best value = {self.state.best_value:.4f}, "
-                            f"Length = {self.state.length:.4f}, "
-                            f"Success counter = {self.state.success_counter}, "
-                            f"Failure counter = {self.state.failure_counter}")
-            else:
-                logger.info(f"No new evaluations found, current best: {self.state.best_value:.4f}")
-        
-        # Normalize X to [0, 1]^d for the trust region optimization
-        X_normalized = normalize(X, bounds=bounds)
-        
-        # If restart is triggered, reset state
-        if self.state.restart_triggered:
-            logger.info("TuRBO restart triggered")
-            
-            # Get dimension safely
-            if isinstance(search_space_digest.bounds, list):
-                dim = len(search_space_digest.bounds[0])
-            else:
-                dim = search_space_digest.bounds.shape[0]
-                
-            self.state = TurboState(
-                dim=dim, 
-                batch_size=self.batch_size
-            )
-            
-            # Set best value based on all observed data
-            if Y is not None and len(Y) > 0:
-                self.state.best_value = Y.max().item()
-                logger.info(f"Reset TuRBO state with best value {self.state.best_value:.4f}")
-            
-            # Save reset state if requested
+            # load the state from the file if it exists
+            if self.turbo_options.get("state_file"):
+                self.load_state(self.turbo_options["state_file"])
+            print(f"TuRBO state: {self.state}")
+            # update the state based on the training data
+            self.state = update_state(state=self.state, Y_next=Y,minimize=self.turbo_options.get("minimize", False))
+            # save the state if requested
             if self.turbo_options.get("save_on_update") and self.turbo_options.get("state_file"):
                 self.save_state(self.turbo_options["state_file"])
-        
+
+        print(
+            f"{len(X)}) Best value: {self.state.best_value:.2e}, TR length: {self.state.length:.2e}"
+        )
+
         # Generate candidates using TuRBO's trust region
         acqf_type = self.turbo_options.get("acqf_type", "ts")
         n_candidates = self.turbo_options.get("n_candidates", None)
@@ -442,7 +439,7 @@ class TURBOAcquisition(Acquisition):
         
         X_next = self.generate_batch(
             model=model,
-            X=X_normalized,
+            X=X,
             Y=Y,
             bounds=bounds,
             acqf_type=acqf_type,
@@ -450,10 +447,9 @@ class TURBOAcquisition(Acquisition):
             raw_samples=raw_samples,
             num_restarts=num_restarts,
         )
-        
-        # Unnormalize the candidates
-        candidates = unnormalize(X_next, bounds=bounds)
-        
+
+        candidates = X_next
+
         # For TuRBO, we don't have explicit acquisition values
         # So we use the model to predict the values
         with torch.no_grad():
@@ -466,14 +462,8 @@ class TURBOAcquisition(Acquisition):
             else:
                 acquisition_value = model(candidates).mean.squeeze(-1)
 
+
         
-        # Return the candidates, acquisition values, and weights
-        # weights = torch.ones_like(candidates, device=device, dtype=dtype)
-        # torch.ones(n, device=candidates.device, dtype=candidates.dtype)
-        # Print current status
-        print(
-            f"{len(X_next)}) Best value: {self.state.best_value:.2e}, TR length: {self.state.length:.2e}"
-        )
         return candidates, acquisition_value, torch.ones(n, device=candidates.device, dtype=candidates.dtype)
 
     def evaluate(self, X: Tensor) -> Tensor:

@@ -1,6 +1,25 @@
 """axBOtorchOptimizer module. This module contains the axBOtorchOptimizer class. The class is used to run the bayesian optimization process using the Ax library."""
 ######### Package Imports #########################################################################
+from dataclasses import dataclass
+import torch
+from botorch.acquisition import qExpectedImprovement, qLogExpectedImprovement
+from botorch.exceptions import BadInitialCandidatesWarning
+from botorch.fit import fit_gpytorch_mll
+from botorch.generation import MaxPosteriorSampling
+from botorch.models import SingleTaskGP
+from botorch.optim import optimize_acqf
+from botorch.test_functions import Ackley
+from botorch.utils.transforms import unnormalize
+from torch.quasirandom import SobolEngine
 
+import gpytorch
+from gpytorch.constraints import Interval
+from gpytorch.kernels import MaternKernel, ScaleKernel
+from gpytorch.likelihoods import GaussianLikelihood
+from gpytorch.mlls import ExactMarginalLogLikelihood
+from botorch.acquisition.objective import ScalarizedPosteriorTransform
+
+import math
 import numpy as np
 from joblib import Parallel, delayed
 from functools import partial
@@ -479,5 +498,420 @@ class axBOtorchOptimizer():
             if os.path.exists(tmp_dir):
                 shutil.rmtree(tmp_dir)
 
+    def optimize_turbo(self):
+        parallel_agents = self.kwargs.get('parallel_agents',True)
+        verbose_logging = self.kwargs.get('verbose_logging',True)
+        enforce_sequential_optimization = self.kwargs.get('enforce_sequential_optimization',False)
+        global_stopping_strategy = self.kwargs.get('global_stopping_strategy',None)
+        global_max_parallelism = self.kwargs.get('global_max_parallelism',-1)
+        outcome_constraints = self.kwargs.get('outcome_constraints',None)
+        parameter_constraints = self.kwargs.get('parameter_constraints',None)
+
+        parameters_space = ConvertParamsAx(self.params)
+        objectives=self.create_objectives()
+
+        # check len pbjectives
+        if len(objectives) > 1:
+            raise ValueError('Turbo only supports single objective optimization')
+        # check if we minimize
+        minimize = list(objectives.values())[0].minimize
+        if minimize:
+            fac = -1
+        else:
+            fac = 1
+
+        if len(self.models)>2:
+            raise ValueError('Turbo only supports 2 models')
+        if self.models[0] != 'SOBOL':
+            raise ValueError('Turbo only supports Sobol as the first model')
+        if self.models[1] != 'BOTORCH_MODULAR':
+            raise ValueError('Turbo only supports BoTorch as the second model')
+        
+        # Set the device and dtype
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.double
+        max_cholesky_size = float("inf")  # Always use Cholesky
+
+        # Start with a Sobol sequence
+        n_total_sobol = self.n_batches[0]*self.batch_size[0]
+        num_sobol = 0
+        # use params bounds if p
+        # make sure that we do not take fixed params into account
+        free_pnames = [p['name'] for p in parameters_space if p['type'] != 'fixed']
+        dim = len(free_pnames)
+        bounds = torch.tensor([p['bounds'] for p in parameters_space if p['type'] != 'fixed'], device=device, dtype=dtype)
+        print(bounds)
+        # transpose bounds
+        bounds = bounds.transpose(0,1)
+        # Create and run initial points per batch
+        count_batch = 1
+        while num_sobol < n_total_sobol:
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info('Starting Sobol batch %d with %d trials', count_batch, self.batch_size[0])
+            
+            # Get initial points
+            X_turbo = get_initial_points(
+                dim=dim,
+                n_pts=self.batch_size[0],
+                device=device,
+                dtype=dtype,
+            )
+            
+            # unnormalize
+            X_turbo_un = unnormalize(X_turbo, bounds=bounds)
+            # build list of dicts with noam
+            dics = []
+            for p in X_turbo_un:
+                p = p.cpu().numpy()
+                # write p into a dict with the param names as keys
+                p = {self.params[i].name: p[i] for i in range(len(self.params))}
+                dics.append(p)
+
+            # run agents 
+            if parallel_agents:
+                agent_param_list =[]
+                for p_idx, p in enumerate(dics):
+                    for idx, agent in enumerate(self.agents):
+                        agent_param_list.append((idx, agent, p_idx, p))
+
+                # Run all combinations in parallel using multiprocessing
+                with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
+                    parallel_results = pool.map(self.evaluate, agent_param_list)
+
+                # Collect and merge results
+                results_dict = defaultdict(dict)
+                for p_idx, res in parallel_results:
+                    results_dict[p_idx].update(res)
+
+                # Convert to main_results list
+                main_results = [results_dict[i] for i in sorted(results_dict)]
+            else:
+                results = []
+                for idx, agent in enumerate(self.agents):
+                    dum_res = Parallel(n_jobs=min(len(dics),self.max_parallelism))(delayed(agent.run_Ax)(p) for p in dics)
+                    results.append(dum_res)
+                
+                main_results = []
+                # merge the n agents results
+                for i in range(len(results[0])):
+                    main_results.append({})
+                    for j in range(len(results)):
+                        main_results[-1].update(results[j][i])
+            Y_turbo = torch.tensor([list(res.values()) for res in main_results], device=device, dtype=dtype)
+            # multiplication factor
+            Y_turbo = fac*Y_turbo
+            num_sobol += self.batch_size[0]
+            count_batch += 1
+
+        if verbose_logging:
+            logging_level = 20
+            logger.setLevel(logging_level)
+            logger.info('Finished Sobol')
+        
+        # Create a new state for each batch
+        # if minimize:
+        #     best_value = min(Y_turbo).item()
+        # else:
+        best_value = max(Y_turbo).item()
+        state = TurboState(dim=dim, batch_size=self.batch_size[1], best_value=best_value)
+        NUM_RESTARTS = 10 
+        RAW_SAMPLES = 512 
+        N_CANDIDATES = min(5000, max(2000, 200 * dim)) 
+        max_num_trials = self.n_batches[1]*self.batch_size[1]
+        num_turbo = 0
+        
+        while (not state.restart_triggered) and (num_turbo < max_num_trials):
+            # Fit a GP model
+            train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
+            likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
+            covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
+                MaternKernel(
+                    nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
+                )
+            )
+            model = SingleTaskGP(
+                X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
+            )
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+
+            # Do the fitting and acquisition function optimization inside the Cholesky context
+            with gpytorch.settings.max_cholesky_size(max_cholesky_size):
+                # Fit the model
+                fit_gpytorch_mll(mll)
+
+                # Create a batch
+                X_next = generate_batch(
+                    state=state,
+                    model=model,
+                    X=X_turbo,
+                    Y=train_Y,
+                    batch_size=state.batch_size,
+                    n_candidates=N_CANDIDATES,
+                    num_restarts=NUM_RESTARTS,
+                    raw_samples=RAW_SAMPLES,
+                    acqf="ts",
+                    device=device,
+                    dtype=dtype,
+                    minimize=minimize,
+                )
+
+            # Evaluate the batch
+            X_next_un = unnormalize(X_next, bounds=bounds)
+            # build list of dicts with noam
+            dics = []
+            for p in X_next_un:
+                p = p.cpu().numpy()
+                # write p into a dict with the param names as keys
+                p = {self.params[i].name: p[i] for i in range(len(self.params))}
+                dics.append(p)
+            # run agents
+            if parallel_agents:
+                agent_param_list =[]
+                for p_idx, p in enumerate(dics):
+                    for idx, agent in enumerate(self.agents):
+                        agent_param_list.append((idx, agent, p_idx, p))
+
+                # Run all combinations in parallel using multiprocessing
+                with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
+                    parallel_results = pool.map(self.evaluate, agent_param_list)
+
+                # Collect and merge results
+                results_dict = defaultdict(dict)
+                for p_idx, res in parallel_results:
+                    results_dict[p_idx].update(res)
+
+                # Convert to main_results list
+                main_results = [results_dict[i] for i in sorted(results_dict)]
+            else:
+                results = []
+                for idx, agent in enumerate(self.agents):
+                    dum_res = Parallel(n_jobs=min(len(dics),self.max_parallelism))(delayed(agent.run_Ax)(p) for p in dics)
+                    results.append(dum_res)
+                
+                main_results = []
+                # merge the n agents results
+                for i in range(len(results[0])):
+                    main_results.append({})
+                    for j in range(len(results)):
+                        main_results[-1].update(results[j][i])
+
+            Y_next = torch.tensor([list(res.values()) for res in main_results], device=device, dtype=dtype)
+            # multiplication factor
+            Y_next = fac*Y_next
+            # Update state
+            state = update_state(state=state, Y_next=Y_next, minimize=minimize)
+
+            # Append data
+            X_turbo = torch.cat((X_turbo, X_next), dim=0)
+            Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
+            num_turbo += state.batch_size
+            # Print current status
+            print(
+                f"{len(X_turbo)}) Best value: {fac*state.best_value:.2e}, TR length: {state.length:.2e}"
+    )
+            
+        # load all data into ax
+        if verbose_logging:
+            logging_level = 20
+            logger.setLevel(logging_level)
+            logger.info('Finished Turbo batch %d with %d trials', count_batch, state.batch_size)
+
+        # load all data into ax
+        # create ax client
+        # create generation strategy using the second model
+        gs = [GenerationStep(
+            model=Models[self.models[1]],
+            num_trials=1,
+            max_parallelism=min(self.max_parallelism,self.batch_size[1]),
+            model_kwargs= self.model_kwargs_list[1],
+            model_gen_kwargs= self.model_gen_kwargs_list[1],
+        )]
+        gs = GenerationStrategy(steps=gs, )
+
+        # create ax client
+        if self.ax_client is None:
+            self.ax_client = AxClient(generation_strategy=gs, enforce_sequential_optimization=enforce_sequential_optimization, verbose_logging=verbose_logging,global_stopping_strategy=global_stopping_strategy)
+        
+        self.ax_client.create_experiment(
+            name=self.name,
+            parameters=parameters_space,
+            objectives=self.create_objectives(),
+            # outcome_constraints=outcome_constraints,
+            # parameter_constraints=parameter_constraints,
+        )
+        # add all data to ax
+        X_turbo_un = unnormalize(X_turbo, bounds=bounds)
+        for i in range(len(X_turbo_un)):
+            dic = {}
+            for j in range(len(X_turbo_un[i])):
+                dic[free_pnames[j]] = X_turbo_un[i][j].item()
+            parameters, trial_index = self.ax_client.attach_trial(parameters=dic)
+            self.ax_client.complete_trial(trial_index, raw_data=fac*Y_turbo[i].item())
+
+        # train the model
+        self.ax_client.get_next_trial(1)
+
+        if verbose_logging:
+            logging_level = 20
+            logger.setLevel(logging_level)
+            logger.info('Finished Turbo')
+
+
+
+
+
+
+
+
+        
+
+
+
+
+
+@dataclass
+class TurboState:
+    dim: int
+    batch_size: int
+    length: float = 0.8
+    length_min: float = 0.5**7
+    length_max: float = 1.6
+    failure_counter: int = 0
+    failure_tolerance: int = float("nan")  # Note: Post-initialized
+    success_counter: int = 0
+    success_tolerance: int = 10  # Note: The original paper uses 3
+    best_value: float = -float("inf")
+    restart_triggered: bool = False
+
+    def __post_init__(self):
+        self.failure_tolerance = math.ceil(
+            max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
+        )
+def get_initial_points(dim, n_pts, seed=0, device=None, dtype=None):
+   
+
+    sobol = SobolEngine(dimension=dim, scramble=True, seed=seed)
+    X_init = sobol.draw(n=n_pts).to(dtype=dtype, device=device)
+    return X_init
+
+def update_state(state, Y_next, minimize=False):
+    # if minimize:
+    #     # For minimization, we want the minimum value
+    #     current_best = min(Y_next).item()
+    #     is_success = current_best < state.best_value - 1e-3 * math.fabs(state.best_value)
+    #     state.best_value = min(state.best_value, current_best)
+    # else:
+    # For maximization, we want the maximum value
+    current_best = max(Y_next).item()
+    is_success = current_best > state.best_value + 1e-3 * math.fabs(state.best_value)
+    state.best_value = max(state.best_value, current_best)
+    
+    if is_success:
+        state.success_counter += 1
+        state.failure_counter = 0
+    else:
+        state.success_counter = 0
+        state.failure_counter += 1
+
+    if state.success_counter == state.success_tolerance:  # Expand trust region
+        state.length = min(2.0 * state.length, state.length_max)
+        state.success_counter = 0
+    elif state.failure_counter == state.failure_tolerance:  # Shrink trust region
+        state.length /= 2.0
+        state.failure_counter = 0
+
+    if state.length < state.length_min:
+        state.restart_triggered = True
+    return state
+
+def generate_batch(
+    state,
+    model,  # GP model
+    X,  # Evaluated points on the domain [0, 1]^d
+    Y,  # Function values
+    batch_size,
+    n_candidates=None,  # Number of candidates for Thompson sampling
+    num_restarts=10,
+    raw_samples=512,
+    acqf="ts",  # "ei" or "ts"
+    device=None,
+    dtype=None,
+    minimize=False,
+):
+    assert acqf in ("ts", "ei")
+    assert X.min() >= 0.0 and X.max() <= 1.0 and torch.all(torch.isfinite(Y))
+    if n_candidates is None:
+        n_candidates = min(5000, max(2000, 200 * X.shape[-1]))
+
+    # Scale the TR to be proportional to the lengthscales
+    # Select the center point based on whether we're minimizing or maximizing
+    # if minimize:
+    #     x_center = X[Y.argmin(), :].clone()
+    # else:
+    x_center = X[Y.argmax(), :].clone()
+        
+    weights = model.covar_module.base_kernel.lengthscale.squeeze().detach()
+    weights = weights / weights.mean()
+    weights = weights / torch.prod(weights.pow(1.0 / len(weights)))
+    tr_lb = torch.clamp(x_center - weights * state.length / 2.0, 0.0, 1.0)
+    tr_ub = torch.clamp(x_center + weights * state.length / 2.0, 0.0, 1.0)
+
+    if acqf == "ts":
+        # Thompson Sampling
+        dim = X.shape[-1]
+        sobol = SobolEngine(dim, scramble=True, )#seed=np.random.randint(10000))
+        pert = sobol.draw(n_candidates).to(dtype=dtype, device=device)
+        pert = tr_lb + (tr_ub - tr_lb) * pert
+
+        # Create a perturbation mask
+        prob_perturb = min(20.0 / dim, 1.0)
+        mask = torch.rand(n_candidates, dim, dtype=dtype, device=device) <= prob_perturb
+        ind = torch.where(mask.sum(dim=1) == 0)[0]
+        mask[ind, torch.randint(0, dim - 1, size=(len(ind),), device=device)] = 1
+
+        # Create candidate points from the perturbations and the mask
+        X_cand = x_center.expand(n_candidates, dim).clone()
+        X_cand[mask] = pert[mask]
+
+        # Sample from the posterior
+        # if minimize:
+        #     # For minimization: use a negative objective as tensor
+        #     transform = ScalarizedPosteriorTransform(weights=torch.tensor([-1.0], device=device, dtype=dtype))
+        #     thompson_sampling = MaxPosteriorSampling(model=model, replacement=False, posterior_transform=transform)
+        # else:
+        # Original code for maximization
+        thompson_sampling = MaxPosteriorSampling(model=model, replacement=False)
+            
+        with torch.no_grad():
+            X_next = thompson_sampling(X_cand, num_samples=batch_size)
+
+    elif acqf == "ei":
+        # Expected Improvement
+        from botorch.optim import optimize_acqf
+        if minimize:
+            best_f = Y.min().item()
+        else:
+            best_f = Y.max().item()
+        
+        # Use qLogExpectedImprovement for better numerical stability
+        acq_func = qLogExpectedImprovement(
+            model=model,
+            best_f=best_f,
+        )#
+        
+        X_next, acq_value = optimize_acqf(
+            acq_function=acq_func,
+            bounds=torch.stack([tr_lb, tr_ub]),
+            q=batch_size,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options={"batch_limit": 5, "maxiter": 200},
+        )
+    else:
+        raise ValueError(f"Unknown acquisition function type: {acqf}")
+
+    return X_next
 if __name__ == '__main__':
     pass

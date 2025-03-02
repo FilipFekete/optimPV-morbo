@@ -205,6 +205,7 @@ def devils_plot(params, Nres, objective_name, model, loss, best_parameters = Non
                     ax[i,j].axvline(x=params_orig[params[j].name], color='k', linestyle='-')
                     # ax[i, j].scatter(params_orig[params[j].name], params_orig[params[i].name], c='tab:red', marker='*', s=marker_size, zorder=10)
                 if best_parameters is not None:
+                    print(best_parameters[params[i].name], best_parameters[params[j].name])
                     ax[i,j].axhline(y=best_parameters[params[i].name], color='tab:red', linestyle='--')
                     ax[i,j].axvline(x=best_parameters[params[j].name], color='tab:red', linestyle='--')
                     # ax[i, j].scatter(best_parameters[params[j].name], best_parameters[params[i].name], c='tab:orange', marker='*', s=marker_size, zorder=10)
