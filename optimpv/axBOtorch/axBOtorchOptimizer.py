@@ -166,7 +166,11 @@ class axBOtorchOptimizer():
                 model = model
             else:
                 raise ValueError('Model must be a string or a Models enum')
-
+            # check if "n" in model_gen_kwargs_list[i]:
+            if 'n' in self.model_gen_kwargs_list[i]:
+                self.model_gen_kwargs_list[i]['n'] = self.batch_size[i]
+            if 'n' in self.model_kwargs_list[i]:
+                self.model_kwargs_list[i]['n'] = self.batch_size[i]
             steps.append(GenerationStep(
                 model=model,
                 num_trials=self.n_batches[i],#*self.batch_size[i],
@@ -284,16 +288,16 @@ class axBOtorchOptimizer():
         )
 
         # run optimization
-        n = 0
+        num = 0
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         n_step_points = np.cumsum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
 
-        while n < total_trials:
+        while num < total_trials:
             # check the current batch size
-            curr_batch_size = self.batch_size[np.argmax(n_step_points>n)]
-            n += curr_batch_size
-            if n > total_trials:
-                curr_batch_size = curr_batch_size - (n-total_trials)
+            curr_batch_size = self.batch_size[np.argmax(n_step_points>num)]
+            num += curr_batch_size
+            if num > total_trials:
+                curr_batch_size = curr_batch_size - (num-total_trials)
 
             parameters, trial_index = self.ax_client.get_next_trials(curr_batch_size)
             
@@ -423,7 +427,7 @@ class axBOtorchOptimizer():
         runner = MockJobRunner(agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents)
         self.ax_client.experiment.runner = runner
         # run optimization
-        n = 0
+        num = 0
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         n_step_points = np.cumsum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
 
@@ -431,20 +435,20 @@ class axBOtorchOptimizer():
             logger.info('Starting optimization with %d batches and a total of %d trials',sum(np.asarray(self.n_batches)),total_trials)
 
         count = 1
-        while n < total_trials:
-            if verbose_logging and n != 0:
+        while num < total_trials:
+            if verbose_logging and num != 0:
                 logging_level = 20
                 logger.setLevel(logging_level)
-                logger.info(f'Starting batch {round_floats_for_logging(count)} with {round_floats_for_logging(self.batch_size[np.argmax(n_step_points>n)])} trials')
+                logger.info(f'Starting batch {round_floats_for_logging(count)} with {round_floats_for_logging(self.batch_size[np.argmax(n_step_points>num)])} trials')
             # check the current batch size
-            if n == 0:
-                old_batch_size = self.batch_size[np.argmax(n_step_points>n)]
+            if num == 0:
+                old_batch_size = self.batch_size[np.argmax(n_step_points>num)]
             else:
                 old_batch_size = curr_batch_size
 
-            curr_batch_size = self.batch_size[np.argmax(n_step_points>n)]
+            curr_batch_size = self.batch_size[np.argmax(n_step_points>num)]
 
-            if old_batch_size != curr_batch_size or n == 0: # if the batch size changes, create a new scheduler
+            if old_batch_size != curr_batch_size or num == 0: # if the batch size changes, create a new scheduler
                 # Create a new scheduler for each batch with the current batch size
                 scheduler = Scheduler(
                     experiment=self.ax_client.experiment,
@@ -452,9 +456,9 @@ class axBOtorchOptimizer():
                     options=SchedulerOptions(run_trials_in_batches=True,init_seconds_between_polls=init_seconds_between_polls,trial_type=TrialType.BATCH_TRIAL,batch_size=curr_batch_size,logging_level=scheduler_logging_level,global_stopping_strategy=global_stopping_strategy),
                 )
 
-            n += curr_batch_size
-            if n > total_trials:
-                curr_batch_size = curr_batch_size - (n-total_trials)
+            num += curr_batch_size
+            if num > total_trials:
+                curr_batch_size = curr_batch_size - (num-total_trials)
             
             scheduler.run_n_trials(max_trials=1)
             if verbose_logging:
