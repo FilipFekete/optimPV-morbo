@@ -179,10 +179,15 @@ def inv_loss_function(value,loss='linear'):
     elif loss.lower() == 'arctan':
         return np.tan(value)
     elif loss.lower() == 'huber':
-        if abs(value) <= 1:
-            return value
+        if type(value) == np.ndarray:
+            value = np.asarray(value)
+            result = np.where(np.abs(value) <= 1, value, 0.5 * (value + 1)**2)
         else:
-            return 0.5 * (value + 1)**2
+            if abs(value) <= 1:
+                return value
+            else:
+                return 0.5 * (value + 1)**2
+        return result
     else:
         raise ValueError('The loss '+loss+' is not implemented.')   
 

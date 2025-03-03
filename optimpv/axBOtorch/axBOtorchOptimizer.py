@@ -510,7 +510,12 @@ class axBOtorchOptimizer():
         parameters_space = ConvertParamsAx(self.params)
         objectives=self.create_objectives()
 
-        # check len pbjectives
+        if parameter_constraints is not None:
+            raise ValueError('Turbo does not support parameter constraints')
+        if outcome_constraints is not None:
+            raise ValueError('Turbo does not support outcome constraints')  
+        
+        # check if we have a single objective
         if len(objectives) > 1:
             raise ValueError('Turbo only supports single objective optimization')
         # check if we minimize
@@ -540,7 +545,7 @@ class axBOtorchOptimizer():
         free_pnames = [p['name'] for p in parameters_space if p['type'] != 'fixed']
         dim = len(free_pnames)
         bounds = torch.tensor([p['bounds'] for p in parameters_space if p['type'] != 'fixed'], device=device, dtype=dtype)
-        print(bounds)
+
         # transpose bounds
         bounds = bounds.transpose(0,1)
         # Create and run initial points per batch
