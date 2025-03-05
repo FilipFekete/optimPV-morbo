@@ -628,94 +628,104 @@ class axBOtorchOptimizer():
         num_turbo = 0
         
         while (not state.restart_triggered) and (num_turbo < max_num_trials):
-            # Fit a GP model
-            train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
-            likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
-            covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
-                MaternKernel(
-                    nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
+            try:
+                # Fit a GP model
+                train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
+                likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
+                covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
+                    MaternKernel(
+                        nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
+                    )
                 )
-            )
-            model = SingleTaskGP(
-                X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
-            )
-            mll = ExactMarginalLogLikelihood(model.likelihood, model)
-
-            # Do the fitting and acquisition function optimization inside the Cholesky context
-            with gpytorch.settings.max_cholesky_size(max_cholesky_size):
-                # Fit the model
-                fit_gpytorch_mll(mll)
-
-                # Create a batch
-                X_next = generate_batch(
-                    state=state,
-                    model=model,
-                    X=X_turbo,
-                    Y=train_Y,
-                    batch_size=state.batch_size,
-                    n_candidates=N_CANDIDATES,
-                    num_restarts=NUM_RESTARTS,
-                    raw_samples=RAW_SAMPLES,
-                    acqf="ts",
-                    device=device,
-                    dtype=dtype,
-                    minimize=minimize,
+                model = SingleTaskGP(
+                    X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
                 )
+                mll = ExactMarginalLogLikelihood(model.likelihood, model)
 
-            # Evaluate the batch
-            X_next_un = unnormalize(X_next, bounds=bounds)
-            # build list of dicts with noam
-            dics = []
-            for p in X_next_un:
-                p = p.cpu().numpy()
-                # write p into a dict with the param names as keys
-                p = {self.params[i].name: p[i] for i in range(len(self.params))}
-                dics.append(p)
-            # run agents
-            if parallel_agents:
-                agent_param_list =[]
-                for p_idx, p in enumerate(dics):
+                # Do the fitting and acquisition function optimization inside the Cholesky context
+                with gpytorch.settings.max_cholesky_size(max_cholesky_size):
+                    # Fit the model
+                    fit_gpytorch_mll(mll)
+
+                    # Create a batch
+                    X_next = generate_batch(
+                        state=state,
+                        model=model,
+                        X=X_turbo,
+                        Y=train_Y,
+                        batch_size=state.batch_size,
+                        n_candidates=N_CANDIDATES,
+                        num_restarts=NUM_RESTARTS,
+                        raw_samples=RAW_SAMPLES,
+                        acqf="ts",
+                        device=device,
+                        dtype=dtype,
+                        minimize=minimize,
+                    )
+
+                # Evaluate the batch
+                X_next_un = unnormalize(X_next, bounds=bounds)
+                # build list of dicts with noam
+                dics = []
+                for p in X_next_un:
+                    p = p.cpu().numpy()
+                    # write p into a dict with the param names as keys
+                    p = {self.params[i].name: p[i] for i in range(len(self.params))}
+                    dics.append(p)
+                # run agents
+                if parallel_agents:
+                    agent_param_list =[]
+                    for p_idx, p in enumerate(dics):
+                        for idx, agent in enumerate(self.agents):
+                            agent_param_list.append((idx, agent, p_idx, p))
+
+                    # Run all combinations in parallel using multiprocessing
+                    with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
+                        parallel_results = pool.map(self.evaluate, agent_param_list)
+
+                    # Collect and merge results
+                    results_dict = defaultdict(dict)
+                    for p_idx, res in parallel_results:
+                        results_dict[p_idx].update(res)
+
+                    # Convert to main_results list
+                    main_results = [results_dict[i] for i in sorted(results_dict)]
+                else:
+                    results = []
                     for idx, agent in enumerate(self.agents):
-                        agent_param_list.append((idx, agent, p_idx, p))
+                        dum_res = Parallel(n_jobs=min(len(dics),self.max_parallelism))(delayed(agent.run_Ax)(p) for p in dics)
+                        results.append(dum_res)
+                    
+                    main_results = []
+                    # merge the n agents results
+                    for i in range(len(results[0])):
+                        main_results.append({})
+                        for j in range(len(results)):
+                            main_results[-1].update(results[j][i])
 
-                # Run all combinations in parallel using multiprocessing
-                with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
-                    parallel_results = pool.map(self.evaluate, agent_param_list)
+                Y_next = torch.tensor([list(res.values()) for res in main_results], device=device, dtype=dtype)
+                # multiplication factor
+                Y_next = fac*Y_next
+                # Update state
+                state = update_state(state=state, Y_next=Y_next, minimize=minimize)
 
-                # Collect and merge results
-                results_dict = defaultdict(dict)
-                for p_idx, res in parallel_results:
-                    results_dict[p_idx].update(res)
-
-                # Convert to main_results list
-                main_results = [results_dict[i] for i in sorted(results_dict)]
-            else:
-                results = []
-                for idx, agent in enumerate(self.agents):
-                    dum_res = Parallel(n_jobs=min(len(dics),self.max_parallelism))(delayed(agent.run_Ax)(p) for p in dics)
-                    results.append(dum_res)
+                # Append data
+                X_turbo = torch.cat((X_turbo, X_next), dim=0)
+                Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
+                num_turbo += state.batch_size
+                count_batch += 1
+                # Print current status
+                if verbose_logging:
+                    logging_level = 20
+                    logger.setLevel(logging_level)
+                    logger.info(f"Finished Turbo batch {count_batch} with {state.batch_size} trials with current best value: {fac*state.best_value:.2e}, TR length: {state.length:.2e}")
+            except Exception as e:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.error(f"Error in Turbo batch {count_batch}: {e}")
+                logger.error(f"We are stopping the optimization process")
+                break
                 
-                main_results = []
-                # merge the n agents results
-                for i in range(len(results[0])):
-                    main_results.append({})
-                    for j in range(len(results)):
-                        main_results[-1].update(results[j][i])
-
-            Y_next = torch.tensor([list(res.values()) for res in main_results], device=device, dtype=dtype)
-            # multiplication factor
-            Y_next = fac*Y_next
-            # Update state
-            state = update_state(state=state, Y_next=Y_next, minimize=minimize)
-
-            # Append data
-            X_turbo = torch.cat((X_turbo, X_next), dim=0)
-            Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
-            num_turbo += state.batch_size
-            # Print current status
-            print(
-                f"{len(X_turbo)}) Best value: {fac*state.best_value:.2e}, TR length: {state.length:.2e}"
-    )
             
         # load all data into ax
         if verbose_logging:
