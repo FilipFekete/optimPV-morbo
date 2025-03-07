@@ -206,13 +206,11 @@ class AxSearch(Searcher):
             # Access the experiment property safely
             exp = self._ax.experiment
             has_experiment = True
-        except ValueError:
+        except Exception as e:
+            logger.warning(
+                "No experiment found. So we will create a new one. "
+            )
             has_experiment = False
-        # except Exception as e:
-        #     logger.warning(
-        #         "No experiment found. So we will create a new one. "
-        #     )
-        #     has_experiment = False
         
         if not has_experiment:
             print("No experiment 11")
