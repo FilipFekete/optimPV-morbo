@@ -552,7 +552,29 @@ class SIMsalabimAgent(BaseAgent):
                 else:
                     raise ValueError('Parameter '+param.name+' is defined in both the parameters and cmd_pars. Please remove one of them.')
             else:
-                raise ValueError('There is no parameter named '+param.name+' in the self.params list. Please check the parameter names.')
+                # if param is not in parameters we use the param.value
+                if param.name not in VarNames:
+                    VarNames.append(param.name)
+                    if '.' in param.name and 'offset' not in param.name and 'Egap' not in param.name:
+                        layer, par = param.name.split('.')
+                        if par not in ['N_ions', 'mu_ions', 'mu_np', 'C_np_bulk', 'C_np_int']:
+                            if par in self.SIMsalabim_params[layer].keys():
+                                clean_pars.append({'par': param.name, 'val': str(param.value)})
+                            else:
+                                custom_pars.append({'par': param.name, 'val': str(param.value)})
+                        else:
+                            clean_pars = self.ambi_param_transform(param, param.value, clean_pars)
+                    else:
+                        if param.name in self.SIMsalabim_params['setup'].keys():
+                            clean_pars.append({'par': param.name, 'val': str(param.value)})
+                        else:
+                            if 'offset' in param.name or 'Egap' in param.name:
+                                custom_pars.append({'par': param.name, 'val': str(param.value)})
+                            else:
+                                warnings.warn('Parameter '+param.name+' is not defined in the SIMsalabim parameter files. Please check the parameter names. The optimization will proceed but '+param.name+' will not be used by SIMsalabim.', UserWarning)
+                else:
+                    raise ValueError('Parameter '+param.name+' is defined in both the parameters and cmd_pars. Please remove one of them.')
+                # raise ValueError('There is no parameter named '+param.name+' in the self.params list. Please check the parameter names.')
 
         return custom_pars, clean_pars, VarNames
     

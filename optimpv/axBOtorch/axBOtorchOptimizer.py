@@ -19,7 +19,7 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 
-import math
+import math, copy
 import numpy as np
 from joblib import Parallel, delayed
 from functools import partial
@@ -51,8 +51,11 @@ round_floats_for_logging = partial(
     decimal_places=ROUND_FLOATS_IN_LOGS_TO_DECIMAL_PLACES,
 )
 
+from optimpv.general.BaseAgent import BaseAgent
+from optimpv.posterior.posterior import get_df_from_ax
+
 ######### Optimizer Definition #######################################################################
-class axBOtorchOptimizer():
+class axBOtorchOptimizer(BaseAgent):
     """Initialize the axBOtorchOptimizer class. The class is used to run the optimization process using the Ax library. 
 
     Parameters
@@ -773,7 +776,55 @@ class axBOtorchOptimizer():
             logger.setLevel(logging_level)
             logger.info('Finished Turbo')
 
+    def update_params_with_best_balance(self,):
+        """ Update the parameters with the best balance of all metrics. 
+        The best balance is defined by ranking the results for each metric and taking the parameters that has the lowest sum of ranks.
+        
+        Raises
+        ------
+        ValueError
+            We need at least one metric to update the parameters
+        """        
 
+        # if we have one objective
+        if len(self.all_metrics) == 1:
+            scaled_best_parameters = self.ax_client.get_best_parameters()[0]
+            self.params_w(scaled_best_parameters,self.params)
+        # if we have multiple objectives
+        elif len(self.all_metrics) > 1:
+            # We do this because the ax_client.get_pareto_optimal_parameters does not necessarily return the best parameters for a balanced results on all objectives
+            df = get_df_ax_client_metrics(self.params, self.ax_client, self.all_metrics)
+            metrics = self.all_metrics
+            minimizes_ = []
+
+            for agent in self.agents:
+                for i in range(len(agent.minimize)):
+                    minimizes_.append(agent.minimize[i])
+
+            ranked_df = copy.deepcopy(df)
+            ranks = []
+            for i in range(len(metrics)):
+                ranked_df[metrics[i]+'_rank'] = ranked_df[metrics[i]].rank(ascending=minimizes_[i])
+                ranks.append(ranked_df[metrics[i]+'_rank'])
+            # get the index of the best balance
+            best_balance_index = np.argmin(np.sum(np.array(ranks), axis=0))
+
+            # get the best parameters
+            scaled_best_parameters = ranked_df.iloc[best_balance_index].to_dict()
+            
+            dum_dic = {}
+            for p in self.params:
+                dum_dic[p.name] = scaled_best_parameters[p.name]
+            scaled_best_parameters = dum_dic
+
+            for p in self.params:
+                if p.name in scaled_best_parameters.keys():
+                    p.value = scaled_best_parameters[p.name]
+
+        else:
+            raise ValueError('We need at least one metric to update the parameters')
+
+        
 
 
 
