@@ -509,6 +509,7 @@ class axBOtorchOptimizer(BaseAgent):
         global_max_parallelism = self.kwargs.get('global_max_parallelism',-1)
         outcome_constraints = self.kwargs.get('outcome_constraints',None)
         parameter_constraints = self.kwargs.get('parameter_constraints',None)
+        acq_turbo = self.kwargs.get('acq_turbo','ts')
 
         parameters_space = ConvertParamsAx(self.params)
         objectives=self.create_objectives()
@@ -634,37 +635,72 @@ class axBOtorchOptimizer(BaseAgent):
             try:
                 # Fit a GP model
                 train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
-                likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
-                covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
-                    MaternKernel(
-                        nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
-                    )
-                )
-                model = SingleTaskGP(
-                    X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
-                )
-                mll = ExactMarginalLogLikelihood(model.likelihood, model)
 
-                # Do the fitting and acquisition function optimization inside the Cholesky context
-                with gpytorch.settings.max_cholesky_size(max_cholesky_size):
-                    # Fit the model
-                    fit_gpytorch_mll(mll)
-
-                    # Create a batch
-                    X_next = generate_batch(
-                        state=state,
-                        model=model,
-                        X=X_turbo,
-                        Y=train_Y,
-                        batch_size=state.batch_size,
-                        n_candidates=N_CANDIDATES,
-                        num_restarts=NUM_RESTARTS,
-                        raw_samples=RAW_SAMPLES,
-                        acqf="ts",
-                        device=device,
-                        dtype=dtype,
-                        minimize=minimize,
+                try:
+                    likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
+                    covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
+                        MaternKernel(
+                            nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
+                        )
                     )
+                    model = SingleTaskGP(
+                        X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
+                    )
+                    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+                
+                    # Do the fitting and acquisition function optimization inside the Cholesky context
+                    with gpytorch.settings.max_cholesky_size(max_cholesky_size):
+                        # Fit the model
+                        fit_gpytorch_mll(mll)
+
+                        # Create a batch
+                        X_next = generate_batch(
+                            state=state,
+                            model=model,
+                            X=X_turbo,
+                            Y=train_Y,
+                            batch_size=state.batch_size,
+                            n_candidates=N_CANDIDATES,
+                            num_restarts=NUM_RESTARTS,
+                            raw_samples=RAW_SAMPLES,
+                            acqf=acq_turbo,
+                            device=device,
+                            dtype=dtype,
+                            minimize=minimize,
+                        )
+                except Exception as e:
+                    # Fall back to a more robust likelihood with stronger regularization
+                    likelihood = GaussianLikelihood(noise_constraint=Interval(1e-4, 0.1))
+                    covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
+                        MaternKernel(
+                            nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
+                        )
+                    )
+                    model = SingleTaskGP(X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood)
+                    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+                    with gpytorch.settings.max_cholesky_size(max_cholesky_size):
+                        # Fit the model
+                        fit_gpytorch_mll(mll)
+
+                        # Create a batch
+                        X_next = generate_batch(
+                            state=state,
+                            model=model,
+                            X=X_turbo,
+                            Y=train_Y,
+                            batch_size=state.batch_size,
+                            n_candidates=N_CANDIDATES,
+                            num_restarts=NUM_RESTARTS,
+                            raw_samples=RAW_SAMPLES,
+                            acqf=acq_turbo,
+                            device=device,
+                            dtype=dtype,
+                            minimize=minimize,
+                        )
+                    logging_level = 20
+                    logger.setLevel(logging_level)
+                    logger.error(f"Error in Turbo batch {count_batch}: {e}")
+                    logger.error(f"We are stopping the optimization process")
 
                 # Evaluate the batch
                 X_next_un = unnormalize(X_next, bounds=bounds)
@@ -710,7 +746,7 @@ class axBOtorchOptimizer(BaseAgent):
                 # multiplication factor
                 Y_next = fac*Y_next
                 # Update state
-                state = update_state(state=state, Y_next=Y_next, minimize=minimize)
+                state = update_state(state=state, Y_next=Y_next)
 
                 # Append data
                 X_turbo = torch.cat((X_turbo, X_next), dim=0)
@@ -855,20 +891,49 @@ class TurboState:
         self.failure_tolerance = math.ceil(
             max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
         )
-def get_initial_points(dim, n_pts, seed=0, device=None, dtype=None):
-   
+def get_initial_points(dim, n_pts, seed=None, device=None, dtype=None):
+    """ Generate initial points using Sobol sequence.
 
+    Parameters
+    ----------
+    dim : int
+        Number of dimensions
+    n_pts : int
+        Number of points to generate
+    seed : int, optional
+        Random seed, by default None
+    device : torch.device, optional
+        Device to use for the generated points, by default None
+    dtype : torch.dtype, optional
+        Data type of the generated points, by default None
+
+    Returns
+    -------
+    torch.Tensor
+        Generated points in the range [0, 1]^d
+    """    
     sobol = SobolEngine(dimension=dim, scramble=True, seed=seed)
     X_init = sobol.draw(n=n_pts).to(dtype=dtype, device=device)
     return X_init
 
-def update_state(state, Y_next, minimize=False):
-    # if minimize:
-    #     # For minimization, we want the minimum value
-    #     current_best = min(Y_next).item()
-    #     is_success = current_best < state.best_value - 1e-3 * math.fabs(state.best_value)
-    #     state.best_value = min(state.best_value, current_best)
-    # else:
+def update_state(state, Y_next):
+    """ Update the state of the optimization process based on the new observations.
+       For TURBO optimization only.
+       The state is updated based on the success or failure of the new observations.
+
+    Parameters
+    ----------
+    state : TurboState
+        Current state of the optimization process
+    Y_next : torch.Tensor
+        New observations
+
+    Returns
+    -------
+    TurboState
+        Updated state of the optimization process
+
+    """    
     # For maximization, we want the maximum value
     current_best = max(Y_next).item()
     is_success = current_best > state.best_value + 1e-3 * math.fabs(state.best_value)
@@ -892,10 +957,7 @@ def update_state(state, Y_next, minimize=False):
         state.restart_triggered = True
     return state
 
-def generate_batch(
-    state,
-    model,  # GP model
-    X,  # Evaluated points on the domain [0, 1]^d
+def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
     Y,  # Function values
     batch_size,
     n_candidates=None,  # Number of candidates for Thompson sampling
@@ -906,6 +968,48 @@ def generate_batch(
     dtype=None,
     minimize=False,
 ):
+    """ Generate a batch of points using the TURBO algorithm.
+    The batch is generated using either Thompson sampling or Expected Improvement.
+
+    Parameters
+    ----------
+    state : TurboState
+        Current state of the optimization process
+    model : GPyTorchModel
+        GPyTorch model for the function
+    X : torch.Tensor
+        Evaluated points on the domain [0, 1]^d
+    Y : torch.Tensor
+        Function values
+    batch_size : int
+        Number of points to generate
+    n_candidates : int, optional
+        Number of candidates for Thompson sampling, by default None
+    num_restarts : int, optional
+        Number of restarts for the optimization, by default 10
+    raw_samples : int, optional
+        Number of raw samples for the optimization, by default 512
+    acqf : str, optional
+        Acquisition function to use can be "ts" or "ei", by default "ts"
+    device : torch.device, optional
+        Device to use for the generated points, by default None
+    dtype : torch.dtype, optional
+        Data type of the generated points, by default None
+    minimize : bool, optional
+        Whether to minimize or maximize the function, by default False
+
+    Returns
+    -------
+    torch.Tensor
+        Generated points in the range [0, 1]^d
+    
+    Raises
+    ------
+    AssertionError
+        If the acquisition function is not "ts" or "ei"
+    ValueError
+        If the acquisition function is not "ts" or "ei"
+    """    
     assert acqf in ("ts", "ei")
     assert X.min() >= 0.0 and X.max() <= 1.0 and torch.all(torch.isfinite(Y))
     if n_candidates is None:
