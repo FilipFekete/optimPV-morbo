@@ -596,12 +596,12 @@ def plot_density_exploration(params, optimizer = None, best_parameters = None, p
                 if i == n - 1:
                     for p in params:
                         if p.name == yy:
-                            ax.set_xlabel(p.display_name + ' (' + p.unit + ')')
+                            ax.set_xlabel(p.display_name + ' [' + p.unit + ']')
                     ax.tick_params(axis='x', rotation=45, which='both')
                 if j == 0:
                     for p in params:
                         if p.name == xx:
-                            ax.set_ylabel(p.display_name + ' (' + p.unit + ')')
+                            ax.set_ylabel(p.display_name + ' [' + p.unit + ']')
                 if i == j:
                     ax.set_title(params[i].display_name + ' [' +params[i].unit+']')
                     ax.set_ylabel('Density')

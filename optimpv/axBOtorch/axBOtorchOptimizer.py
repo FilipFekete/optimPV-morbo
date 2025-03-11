@@ -365,9 +365,6 @@ class axBOtorchOptimizer(BaseAgent):
                     self.ax_client.log_trial_failure(trial_index)
 
 
-    # def call_logger(self,curr_batch_size,count):
-        # logger.info(f'Finished batch "{round_floats_for_logging(count)}" and starting batch "{round_floats_for_logging(count+1)}" with "{round_floats_for_logging(curr_batch_size)}" trials')
-     
     def optimize_batch(self):
         """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel_agents attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class. The optimization process runs using the create_generation_strategy and create_objectives methods of the class. The optimization process runs using the run_Ax method of the agents.
 
@@ -501,18 +498,59 @@ class axBOtorchOptimizer(BaseAgent):
             if os.path.exists(tmp_dir):
                 shutil.rmtree(tmp_dir)
 
-    def optimize_turbo(self):
+    def optimize_turbo(self,acq_turbo='ts',kwargs_turbo_state={},kwargs_turbo={}):
+        """Run the optimzation using Turbo. This is based on the Botorch implementation of Turbo. See https://botorch.org/docs/tutorials/turbo_1/ for more details.
+
+        Parameters
+        ----------
+        acq_turbo : str, optional
+            The acquisition function to use can be 'ts' or 'ei', by default 'ts'
+        kwargs_turbo_state : dict, optional
+            The kwargs to use for the TurboState, by default {}
+            can be: 
+            - length: float, by default 0.8
+            - length_min: float, by default 0.5**7
+            - length_max: float, by default 1.6
+            - success_tolerance: int, by default 10
+        kwargs_turbo : dict, optional
+            The kwargs to use for the Turbo, by default {}
+
+        Raises
+        ------
+        ValueError
+            Turbo does not support parameter constraints
+        ValueError
+            Turbo does not support outcome constraints
+        ValueError
+            Turbo only supports single objective optimization
+        ValueError
+            Turbo only supports 2 models
+        ValueError
+            Turbo only supports Sobol as the first model
+        ValueError
+            Turbo only supports BoTorch as the second model
+        """            
+
+        parameters_space = ConvertParamsAx(self.params)
+        objectives=self.create_objectives()
+
+        # make sure that we do not take fixed params into account
+        free_pnames = [p['name'] for p in parameters_space if p['type'] != 'fixed']
+        dim = len(free_pnames)
+
         parallel_agents = self.kwargs.get('parallel_agents',True)
         verbose_logging = self.kwargs.get('verbose_logging',True)
         enforce_sequential_optimization = self.kwargs.get('enforce_sequential_optimization',False)
         global_stopping_strategy = self.kwargs.get('global_stopping_strategy',None)
-        global_max_parallelism = self.kwargs.get('global_max_parallelism',-1)
         outcome_constraints = self.kwargs.get('outcome_constraints',None)
         parameter_constraints = self.kwargs.get('parameter_constraints',None)
-        acq_turbo = self.kwargs.get('acq_turbo','ts')
+        # acq_turbo = self.kwargs.get('acq_turbo','ts')
+        # kwargs_turbo_state = self.kwargs.get('kwargs_turbo_state',{})
+        NUM_RESTARTS = kwargs_turbo.get('NUM_RESTARTS', 10)
+        RAW_SAMPLES = kwargs_turbo.get('RAW_SAMPLES', 512)
+        N_CANDIDATES = kwargs_turbo.get('N_CANDIDATES', min(5000, max(2000, 200 * dim)))
 
-        parameters_space = ConvertParamsAx(self.params)
-        objectives=self.create_objectives()
+        
 
         if parameter_constraints is not None:
             raise ValueError('Turbo does not support parameter constraints')
@@ -544,10 +582,6 @@ class axBOtorchOptimizer(BaseAgent):
         # Start with a Sobol sequence
         n_total_sobol = self.n_batches[0]*self.batch_size[0]
         num_sobol = 0
-        # use params bounds if p
-        # make sure that we do not take fixed params into account
-        free_pnames = [p['name'] for p in parameters_space if p['type'] != 'fixed']
-        dim = len(free_pnames)
         bounds = torch.tensor([p['bounds'] for p in parameters_space if p['type'] != 'fixed'], device=device, dtype=dtype)
 
         # transpose bounds
@@ -620,14 +654,8 @@ class axBOtorchOptimizer(BaseAgent):
             logger.info('Finished Sobol')
         
         # Create a new state for each batch
-        # if minimize:
-        #     best_value = min(Y_turbo).item()
-        # else:
         best_value = max(Y_turbo).item()
-        state = TurboState(dim=dim, batch_size=self.batch_size[1], best_value=best_value)
-        NUM_RESTARTS = 10 
-        RAW_SAMPLES = 512 
-        N_CANDIDATES = min(5000, max(2000, 200 * dim)) 
+        state = TurboState(dim=dim, batch_size=self.batch_size[1], best_value=best_value,**kwargs_turbo_state)
         max_num_trials = self.n_batches[1]*self.batch_size[1]
         num_turbo = 0
         
@@ -860,19 +888,8 @@ class axBOtorchOptimizer(BaseAgent):
         else:
             raise ValueError('We need at least one metric to update the parameters')
 
-        
-
-
-
-
-
-
-        
-
-
-
-
-
+              
+######### Turbo specific functions ##############################################################
 @dataclass
 class TurboState:
     dim: int
@@ -883,14 +900,22 @@ class TurboState:
     failure_counter: int = 0
     failure_tolerance: int = float("nan")  # Note: Post-initialized
     success_counter: int = 0
-    success_tolerance: int = 10  # Note: The original paper uses 3
+    success_tolerance: int = 3  # Note: The original paper uses 3
     best_value: float = -float("inf")
     restart_triggered: bool = False
-
-    def __post_init__(self):
+    def __init__(self, dim, batch_size, best_value, **kwargs):
+        self.dim = dim
+        self.batch_size = batch_size
+        self.best_value = best_value
+        for key, value in kwargs.items():
+            setattr(self, key, value)
         self.failure_tolerance = math.ceil(
-            max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
-        )
+                max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
+            )
+        
+    # def __post_init__(self):
+        
+
 def get_initial_points(dim, n_pts, seed=None, device=None, dtype=None):
     """ Generate initial points using Sobol sequence.
 
@@ -1016,10 +1041,6 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
         n_candidates = min(5000, max(2000, 200 * X.shape[-1]))
 
     # Scale the TR to be proportional to the lengthscales
-    # Select the center point based on whether we're minimizing or maximizing
-    # if minimize:
-    #     x_center = X[Y.argmin(), :].clone()
-    # else:
     x_center = X[Y.argmax(), :].clone()
         
     weights = model.covar_module.base_kernel.lengthscale.squeeze().detach()
@@ -1046,12 +1067,6 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
         X_cand[mask] = pert[mask]
 
         # Sample from the posterior
-        # if minimize:
-        #     # For minimization: use a negative objective as tensor
-        #     transform = ScalarizedPosteriorTransform(weights=torch.tensor([-1.0], device=device, dtype=dtype))
-        #     thompson_sampling = MaxPosteriorSampling(model=model, replacement=False, posterior_transform=transform)
-        # else:
-        # Original code for maximization
         thompson_sampling = MaxPosteriorSampling(model=model, replacement=False)
             
         with torch.no_grad():
