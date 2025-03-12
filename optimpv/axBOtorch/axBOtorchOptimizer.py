@@ -498,7 +498,7 @@ class axBOtorchOptimizer(BaseAgent):
             if os.path.exists(tmp_dir):
                 shutil.rmtree(tmp_dir)
 
-    def optimize_turbo(self,acq_turbo='ts',kwargs_turbo_state={},kwargs_turbo={}):
+    def optimize_turbo(self,acq_turbo='ts',force_continue = False, kwargs_turbo_state={},kwargs_turbo={}):
         """Run the optimzation using Turbo. This is based on the Botorch implementation of Turbo. See https://botorch.org/docs/tutorials/turbo_1/ for more details.
 
         Parameters
@@ -578,6 +578,10 @@ class axBOtorchOptimizer(BaseAgent):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.double
         max_cholesky_size = float("inf")  # Always use Cholesky
+        
+        total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
+        if verbose_logging:
+            logger.info('Starting optimization with %d batches and a total of %d trials',sum(np.asarray(self.n_batches)),total_trials)
 
         # Start with a Sobol sequence
         n_total_sobol = self.n_batches[0]*self.batch_size[0]
@@ -659,7 +663,13 @@ class axBOtorchOptimizer(BaseAgent):
         max_num_trials = self.n_batches[1]*self.batch_size[1]
         num_turbo = 0
         
-        while (not state.restart_triggered) and (num_turbo < max_num_trials):
+        while (not num_turbo > max_num_trials) and not (state.restart_triggered and not force_continue):
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                if state.restart_triggered and force_continue:
+                    logger.setLevel(logging_level)
+                    logger.info('Restart triggered, but we force the optimization to continue.')
             try:
                 # Fit a GP model
                 train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
@@ -780,12 +790,14 @@ class axBOtorchOptimizer(BaseAgent):
                 X_turbo = torch.cat((X_turbo, X_next), dim=0)
                 Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
                 num_turbo += state.batch_size
-                count_batch += 1
+                
                 # Print current status
                 if verbose_logging:
                     logging_level = 20
                     logger.setLevel(logging_level)
                     logger.info(f"Finished Turbo batch {count_batch} with {state.batch_size} trials with current best value: {fac*state.best_value:.2e}, TR length: {state.length:.2e}")
+                
+                count_batch += 1
             except Exception as e:
                 logging_level = 20
                 logger.setLevel(logging_level)
@@ -795,10 +807,7 @@ class axBOtorchOptimizer(BaseAgent):
                 
             
         # load all data into ax
-        if verbose_logging:
-            logging_level = 20
-            logger.setLevel(logging_level)
-            logger.info('Finished Turbo batch %d with %d trials', count_batch, state.batch_size)
+        
 
         # load all data into ax
         # create ax client
@@ -833,12 +842,19 @@ class axBOtorchOptimizer(BaseAgent):
             self.ax_client.complete_trial(trial_index, raw_data=fac*Y_turbo[i].item())
 
         # train the model
-        self.ax_client.get_next_trial(1)
+        self.ax_client.get_next_trial(1) # This will train the model
 
         if verbose_logging:
             logging_level = 20
             logger.setLevel(logging_level)
-            logger.info('Finished Turbo')
+            if state.restart_triggered:
+                logger.info('Turbo converged after %d batches with %d trials', count_batch-1, (count_batch-1)*state.batch_size)
+            else:
+                logger.info('Turbo is terminated as the max number (%d) of trials is reached', total_trials)
+        # if verbose_logging:
+        #     logging_level = 20
+        #     logger.setLevel(logging_level)
+        #     logger.info('Finished Turbo')
 
     def update_params_with_best_balance(self,):
         """ Update the parameters with the best balance of all metrics. 
