@@ -741,6 +741,7 @@ class axBOtorchOptimizer(BaseAgent):
                     logger.setLevel(logging_level)
                     logger.error(f"Error in Turbo batch {count_batch}: {e}")
                     logger.error(f"We are stopping the optimization process")
+                    break
 
                 # Evaluate the batch
                 X_next_un = unnormalize(X_next, bounds=bounds)

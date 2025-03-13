@@ -260,22 +260,26 @@ class JVAgent(SIMsalabimAgent):
             cmd_pars = []
 
         # get Gfracs from X
-        Gfracs = []
-        got_gfrac_none = False
-        for xx in self.X:
-            if len(xx.shape) == 1:
-                Gfracs = None
-                got_gfrac_none = True
-            else:
-                if got_gfrac_none:
-                    raise ValueError('all X elements should have the same shape')
+        # check if X is 1D or 2D
+        if len(self.X[0].shape) == 1:
+            Gfracs = None
+        else:
+            Gfracs = []
+            got_gfrac_none = False
+            for xx in self.X:
+                if len(xx.shape) == 1:
+                    Gfracs = None
+                    got_gfrac_none = True
+                else:
+                    if got_gfrac_none:
+                        raise ValueError('all X elements should have the same shape')
 
-                Gfrac = xx[:,1]
-                for g in Gfrac:
-                    if g not in Gfracs:
-                        Gfracs.append(g)
+                    Gfrac = xx[:,1]
+                    for g in Gfrac:
+                        if g not in Gfracs:
+                            Gfracs.append(g)
 
-        Gfracs = np.asarray(Gfracs)                
+            Gfracs = np.asarray(Gfracs)                
 
         # prepare the cmd_pars for the simulation
         custom_pars, clean_pars, VarNames = self.prepare_cmd_pars(parameters, custom_pars, clean_pars, VarNames)
