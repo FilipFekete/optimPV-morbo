@@ -505,6 +505,8 @@ class axBOtorchOptimizer(BaseAgent):
         ----------
         acq_turbo : str, optional
             The acquisition function to use can be 'ts' or 'ei', by default 'ts'
+        force_continue : bool, optional
+            If True, the optimization will continue even if a restart is triggered, by default False
         kwargs_turbo_state : dict, optional
             The kwargs to use for the TurboState, by default {}
             can be: 

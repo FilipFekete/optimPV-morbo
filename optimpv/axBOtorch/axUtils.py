@@ -36,7 +36,7 @@ def ConvertParamsAx(params):
     for param in params:
         if param.value_type == 'float':
             if param.type == 'fixed':
-                ax_params.append({'name': param.name, 'type': 'fixed', 'value': param.value, 'value_type': 'float'})
+                ax_params.append({'name': param.name, 'type': 'fixed', 'value': float(param.value), 'value_type': 'float'})
             else:
                 if param.force_log:
                     ax_params.append({'name': param.name, 'type': 'range', 'bounds': [np.log10(param.bounds[0]), np.log10(param.bounds[1])], 'value_type': 'float', 'log_scale': False})
@@ -47,7 +47,7 @@ def ConvertParamsAx(params):
                         ax_params.append({'name': param.name, 'type': 'range', 'bounds': [param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], 'value_type': 'float'})
         elif param.value_type == 'int':
             if param.type == 'fixed':
-                ax_params.append({'name': param.name, 'type': 'fixed', 'value': param.value, 'value_type': 'int'})
+                ax_params.append({'name': param.name, 'type': 'fixed', 'value': int(param.value), 'value_type': 'int'})
             else:
                 ax_params.append({'name': param.name, 'type': 'range', 'bounds': [int(param.bounds[0]/param.stepsize), int(param.bounds[1]/param.stepsize)], 'value_type': 'int'})
         elif param.value_type == 'cat' or param.value_type == 'sub' or param.value_type == 'str': 

@@ -169,7 +169,9 @@ class JVAgent(SIMsalabimAgent):
             if len(X.shape) == 1:
                 metric = np.trapz(np.abs(y-yfit),x=X[:,0])
             else:
-                Gfracs = np.unique(X[:,1])
+                Gfracs, indices = np.unique(X[:,1], return_index=True)
+                Gfracs = Gfracs[np.argsort(indices)] # unsure the order of the Gfracs is the same as they are in X 
+                
                 metric = 0
                 for Gfrac in Gfracs:
                     Jmin = min(np.min(y[X[:,1]==Gfrac]),np.min(yfit[X[:,1]==Gfrac]))
@@ -267,8 +269,8 @@ class JVAgent(SIMsalabimAgent):
             else:
                 if got_gfrac_none:
                     raise ValueError('all X elements should have the same shape')
-                # append np.unique(xx[:,1]) to Gfracs list
-                Gfrac = np.unique(xx[:,1])
+
+                Gfrac = xx[:,1]
                 for g in Gfrac:
                     if g not in Gfracs:
                         Gfracs.append(g)
@@ -415,9 +417,10 @@ class JVAgent(SIMsalabimAgent):
         if exp_format == 'JV':
             #  check if Gfrac in df 
             if 'Gfrac' in df.columns:
-                Gfracs = np.unique(df['Gfrac'].values)
+                Gfracs, indices = np.unique(X[:,1], return_index=True)
+                Gfracs = Gfracs[np.argsort(indices)] # unsure the order of the Gfracs is the same as they are in X 
+
                 for Gfrac in Gfracs:
-                    
                     df_dum = df[df['Gfrac'] == Gfrac]
                     Vext = np.asarray(df_dum['Vext'].values)
                     Jext = np.asarray(df_dum['Jext'].values)
