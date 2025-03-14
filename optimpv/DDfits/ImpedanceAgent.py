@@ -138,13 +138,17 @@ class ImpedanceAgent(SIMsalabimAgent):
         if not len(self.exp_format) == len(self.metric) == len(self.loss) == len(self.threshold) == len(self.minimize) == len(self.X) == len(self.y) == len(self.weight):
             raise ValueError('exp_format, metric, loss, threshold and minimize must have the same length')
         
-        while True: # need this to be thread safe
+        max_time_out = self.kwargs.get('max_timeout', 30)
+        time_out = 0
+        while time_out < max_time_out:
             try:
                 dev_par, layers = load_device_parameters(session_path, simulation_setup, run_mode = False)
                 break
             except:
                 pass 
             time.sleep(0.002)
+            time_out += 0.002
+
         
         self.dev_par = dev_par
         self.layers = layers

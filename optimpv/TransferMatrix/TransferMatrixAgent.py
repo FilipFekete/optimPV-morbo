@@ -132,13 +132,44 @@ class TransferMatrixAgent(BaseAgent):
             raise ValueError('activeLayer must be in layers')
         
     def target_metric(self,y,yfit=None,metric_name=None):
-        """Calculates the target metric based on the metric, loss, threshold and minimize values"""
+        """Calculates the target metric based on the metric, loss, threshold and minimize values
+
+        Parameters
+        ----------
+        y : array-like
+            1-D array containing the current values.
+        yfit : array-like
+            1-D array containing the fitted current values.
+        metric_name : str
+            Metric to evaluate the model, see optimpv.general.calc_metric for options.
+
+        Returns
+        -------
+        float
+            Target metric value.
+        """        
         if metric_name is None or metric_name == '':
             return y
         else:
             return calc_metric(y,yfit,metric_name=metric_name)
     
     def run(self,parameters):
+        """Run the transfer matrix model and calculate the Jsc, AVT and LUE
+
+        Parameters
+        ----------
+        parameters : dict
+            Dictionary of parameter names and values.
+
+        Returns
+        -------
+        Jsc : float
+            Short circuit current density in A/m^2.
+        AVT : float
+            Average visible transmittance.
+        LUE : float
+            Light utilization efficiency.
+        """        
 
         parameters_rescaled = self.params_rescale(parameters, self.params)
 
@@ -156,18 +187,14 @@ class TransferMatrixAgent(BaseAgent):
 
         Returns
         -------
-        float
-            Loss function value.
+        dict
+            Dictionary of loss functions.
         """    
 
-        # parameters_rescaled = self.params_rescale(parameters, self.params)
-        # print(parameters_rescaled)
         Jsc, AVT, LUE = self.run(parameters)
-
         res_dict = {'Jsc':Jsc,'AVT':AVT,'LUE':LUE}
 
         dum_dict = {}
-
         for i in range(len(self.exp_format)):
             if self.loss[i] is None:
                 dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = self.target_metric(res_dict[self.exp_format[i]],self.metric[i])
