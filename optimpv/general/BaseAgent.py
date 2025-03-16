@@ -100,6 +100,8 @@ class BaseAgent():
                     dum_dict[param.name] = bool(parameters[param.name])
                 else:
                     raise ValueError('Failed to convert parameter name: {} to Fitparam() object'.format(param.name))
+            else:
+                dum_dict[param.name] = param.value
                 
         return dum_dict
 

@@ -859,7 +859,7 @@ class axBOtorchOptimizer(BaseAgent):
         #     logger.setLevel(logging_level)
         #     logger.info('Finished Turbo')
 
-    def update_params_with_best_balance(self,):
+    def update_params_with_best_balance(self,return_best_balance=False):
         """ Update the parameters with the best balance of all metrics. 
         The best balance is defined by ranking the results for each metric and taking the parameters that has the lowest sum of ranks.
         
@@ -903,7 +903,8 @@ class axBOtorchOptimizer(BaseAgent):
             for p in self.params:
                 if p.name in scaled_best_parameters.keys():
                     p.value = scaled_best_parameters[p.name]
-
+            if return_best_balance:
+                return best_balance_index, scaled_best_parameters
         else:
             raise ValueError('We need at least one metric to update the parameters')
 

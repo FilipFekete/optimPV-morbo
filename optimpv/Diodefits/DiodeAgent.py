@@ -107,9 +107,9 @@ class DiodeAgent(BaseAgent):
         if self.exp_format[0] == 'light':
             arg_names.append('Jph')
 
-        for arg in arg_names:
-            if arg not in parameters.keys():
-                raise ValueError('Parameter: {} not in parameters dictionary'.format(arg))
+        # for arg in arg_names:
+        #     if arg not in parameters.keys():
+        #         raise ValueError('Parameter: {} not in parameters dictionary'.format(arg))
         
         if 'T' not in parameters.keys():
             T_ = self.T
