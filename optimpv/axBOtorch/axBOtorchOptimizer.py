@@ -36,10 +36,12 @@ from ax.service.ax_client import AxClient, ObjectiveProperties
 from ax.service.scheduler import Scheduler, SchedulerOptions, TrialType
 from collections import defaultdict
 from torch.multiprocessing import Pool, set_start_method
-try: # needed for multiprocessing when using pytorch
-    set_start_method('spawn')
-except RuntimeError:
-    pass
+# from multiprocessing import Pool, set_start_method
+# try: # needed for multiprocessing when using pytorch
+set_start_method('spawn',force=True)
+# except RuntimeError:
+#     print("spawn method already set")
+#     pass
 
 from logging import Logger
 from ax.utils.common.logger import get_logger, _round_floats_for_logging
@@ -92,7 +94,7 @@ class axBOtorchOptimizer(BaseAgent):
     ValueError
         raised if the model_gen_kwargs_list and models do not have the same length
     """ 
-    def __init__(self, params = None, agents = None, models = ['SOBOL','BOTORCH_MODULAR'],n_batches = [1,10], batch_size = [10,2], ax_client = None,  max_parallelism = 10,model_kwargs_list = None, model_gen_kwargs_list = None, name = 'ax_opti', **kwargs):
+    def __init__(self, params = None, agents = None, models = ['SOBOL','BOTORCH_MODULAR'],n_batches = [1,10], batch_size = [10,2], ax_client = None,  max_parallelism = -1,model_kwargs_list = None, model_gen_kwargs_list = None, name = 'ax_opti', **kwargs):
                
         self.params = params
         if not isinstance(agents, list):
@@ -313,7 +315,7 @@ class axBOtorchOptimizer(BaseAgent):
         num = 0
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         n_step_points = np.cumsum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
-
+        size_pool = None
         while num < total_trials:
             # check the current batch size
             curr_batch_size = self.batch_size[np.argmax(n_step_points>num)]
@@ -341,6 +343,15 @@ class axBOtorchOptimizer(BaseAgent):
                     for idx, agent in enumerate(self.agents):
                         agent_param_list.append((idx, agent, p_idx, p))
 
+                # Run all combinations in parallel using multiprocessing
+                if size_pool is None:
+                    size_pool = min(len(agent_param_list),self.max_parallelism)
+                if size_pool != min(len(agent_param_list),self.max_parallelism):
+                    # close the old pool
+                    size_pool = min(len(agent_param_list),self.max_parallelism)
+                    pool.close()
+                    pool.join()
+                    
                 # Run all combinations in parallel using multiprocessing
                 with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
                     parallel_results = pool.map(self.evaluate, agent_param_list)
@@ -594,6 +605,7 @@ class axBOtorchOptimizer(BaseAgent):
         bounds = bounds.transpose(0,1)
         # Create and run initial points per batch
         count_batch = 1
+        
         while num_sobol < n_total_sobol:
             if verbose_logging:
                 logging_level = 20

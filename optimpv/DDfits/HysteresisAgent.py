@@ -273,7 +273,7 @@ class HysteresisAgent(SIMsalabimAgent):
         
         if type(ret) == int:
             if not ret == 0 :
-                print('Error in running SIMsalabim: '+mess)
+                # print('Error in running SIMsalabim: '+mess)
                 return np.nan
         elif isinstance(ret, subprocess.CompletedProcess):
             
