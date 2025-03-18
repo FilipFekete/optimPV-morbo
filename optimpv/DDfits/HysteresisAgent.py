@@ -247,7 +247,6 @@ class HysteresisAgent(SIMsalabimAgent):
         else:
             cmd_pars = []
 
-
         # prepare the cmd_pars for the simulation
         custom_pars, clean_pars, VarNames = self.prepare_cmd_pars(parameters, custom_pars, clean_pars, VarNames)
 
@@ -352,7 +351,7 @@ class HysteresisAgent(SIMsalabimAgent):
             if len(X) == len(df['Vext'].values):
                 if np.allclose(X, np.asarray(df['Vext'].values)):
                     do_interp = False
-            
+
             if do_interp:
                 # calcuate time for each voltage step
                 t_sim = df['t'].values

@@ -48,7 +48,7 @@ maxAcc = 0.05                 *0.1     * <2, max. acceleration parameter
 ignoreNegDens = 1                  * whether(1) or not(<>1) to ignore negative densities
 failureMode = 2                    * how treat failed (t,V,G) points: 0: stop, 1: ignore, 2: skip
 grad = 10                           * determines shape of exp. grid, increase grad for smaller h[1]
-tolVint = 1E-4                    * V, tolerance internal voltage (Vint)
+tolVint = 1E-8                    * V, tolerance internal voltage (Vint)
 
 **User interface********************************************************************
 timeout = 300                       * s, max run time, use negative value for unlimited run time.

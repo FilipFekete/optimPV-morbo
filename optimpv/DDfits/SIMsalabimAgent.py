@@ -211,7 +211,7 @@ class SIMsalabimAgent(BaseAgent):
             with open(os.path.join(save_path,key),'w') as f:
                 f.write(devpar_write_to_txt(dev_par_new[key]))
 
-    def ambi_param_transform(self, param, value, cmd_pars):
+    def ambi_param_transform(self, param, value, cmd_pars, no_transform=False):
         """Transform the ambipolar parameters to the SIMsalabim format  
         example:  
         mu_ions -> mu_anion and mu_cation  
@@ -238,7 +238,7 @@ class SIMsalabimAgent(BaseAgent):
             layer, par = param.name.split('.')
 
             if par == 'N_ions': # this is a special case that defines both N_anion and N_cation as the same value
-                if param.value_type == 'float':
+                if param.value_type == 'float' and not no_transform:
                     if param.force_log:
                         cmd_pars.append({'par': layer+'.N_anion', 'val': str(10**value)})
                         cmd_pars.append({'par': layer+'.N_cation', 'val': str(10**param.value)})
@@ -249,7 +249,7 @@ class SIMsalabimAgent(BaseAgent):
                     cmd_pars.append({'par': layer+'.N_anion', 'val': str(value)})
                     cmd_pars.append({'par': layer+'.N_cation', 'val': str(value)})
             elif par == 'mu_ions':
-                if param.value_type == 'float':
+                if param.value_type == 'float' and not no_transform:
                     if param.force_log:
                         cmd_pars.append({'par': layer+'.mu_anion', 'val': str(10**value)})
                         cmd_pars.append({'par': layer+'.mu_cation', 'val': str(10**value)})
@@ -260,7 +260,7 @@ class SIMsalabimAgent(BaseAgent):
                     cmd_pars.append({'par': layer+'.mu_anion', 'val': str(value)})
                     cmd_pars.append({'par': layer+'.mu_cation', 'val': str(value)})
             elif par == 'mu_np':
-                if param.value_type == 'float':
+                if param.value_type == 'float' and no_transform:
                     if param.force_log:
                         cmd_pars.append({'par': layer+'.mu_n', 'val': str(10**value)})
                         cmd_pars.append({'par': layer+'.mu_p', 'val': str(10**value)})
@@ -271,7 +271,7 @@ class SIMsalabimAgent(BaseAgent):
                     cmd_pars.append({'par': layer+'.mu_n', 'val': str(value)})
                     cmd_pars.append({'par': layer+'.mu_p', 'val': str(value)})
             elif par == 'C_np_bulk':
-                if param.value_type == 'float':
+                if param.value_type == 'float' and no_transform:
                     if param.force_log:
                         cmd_pars.append({'par': layer+'.C_n_bulk', 'val': str(10**value)})
                         cmd_pars.append({'par': layer+'.C_p_bulk', 'val': str(10**value)})
@@ -281,7 +281,7 @@ class SIMsalabimAgent(BaseAgent):
                 else:
                     cmd_pars.append({'par': layer+'.C_n_bulk', 'val': str(value)})
                     cmd_pars.append({'par': layer+'.C_p_bulk', 'val': str(value)})
-            elif par == 'C_np_int':
+            elif par == 'C_np_int' and no_transform:
                 if param.value_type == 'float':
                     if param.force_log:
                         cmd_pars.append({'par': layer+'.C_n_int', 'val': str(10**value)})
@@ -563,7 +563,7 @@ class SIMsalabimAgent(BaseAgent):
                             else:
                                 custom_pars.append({'par': param.name, 'val': str(param.value)})
                         else:
-                            clean_pars = self.ambi_param_transform(param, param.value, clean_pars)
+                            clean_pars = self.ambi_param_transform(param, param.value, clean_pars, no_transform=True)
                     else:
                         if param.name in self.SIMsalabim_params['setup'].keys():
                             clean_pars.append({'par': param.name, 'val': str(param.value)})
