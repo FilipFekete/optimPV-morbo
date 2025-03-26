@@ -141,7 +141,7 @@ class FitParam():
                 if int(self.start_value) > self.bounds[1] or self.start_value < self.bounds[0]:
                     raise ValueError('start_value must be within bounds')
 
-        if self.value_type == 'float':
+        if self.value_type == 'float' and self.type != 'fixed':
             
             if self.force_log:
                 # self.bounds = [np.log10(self.bounds[0]), np.log10(self.bounds[1])]

@@ -137,10 +137,15 @@ class RateEqAgent(BaseAgent):
         if not len(self.exp_format) == len(self.metric) == len(self.loss) == len(self.threshold) == len(self.minimize) == len(self.X) == len(self.y) == len(self.weight):
             raise ValueError('exp_format, metric, loss, threshold and minimize must have the same length')  
 
-        self.compare_logs = self.kwargs.get('compare_logs',False) 
-        if 'compare_logs' in self.kwargs.keys():
-            # remove it from kwargs
-            self.kwargs.pop('compare_logs')
+        # self.compare_logs = self.kwargs.get('compare_logs',False) 
+        # if 'compare_logs' in self.kwargs.keys():
+        #     self.kwargs.pop('compare_logs')
+        self.compare_type = self.kwargs.get('compare_type','linear')
+        if 'compare_type' in self.kwargs.keys():
+            self.kwargs.pop('compare_type')
+        #compare type can be linear or log or normalized
+        if self.compare_type not in ['linear','log','normalized','normalized_log','sqrt']:
+            raise ValueError('compare_type must be either linear, log or normalized')
     
     def run_RateEq(self,parameters):
         """Run the diode model and calculate the loss function
@@ -181,7 +186,8 @@ class RateEqAgent(BaseAgent):
                     raise ValueError('all X elements should have the same shape and Gfrac should be provided for all elements if specified for one')
                 # append np.unique(xx[:,1]) to Gfracs list
                 if len(xx.shape) == 2:
-                    Gfrac = np.unique(xx[:,1])
+                    Gfrac, index = np.unique(xx[:,1],return_index=True)
+                    Gfrac = Gfrac[np.argsort(index)]
                     for g in Gfrac:
                         if g not in Gfracs:
                             Gfracs.append(g)
@@ -288,10 +294,12 @@ class RateEqAgent(BaseAgent):
         """  
 
         # check if Gfrac is None is unique in df
-        Gfracs = np.unique(df['G_frac'])
+        Gfracs, index = np.unique(df['G_frac'],return_index=True)
 
         if len(Gfracs) == 1:
             Gfracs = None 
+        else:
+            Gfracs = Gfracs[np.argsort(index)]
 
         Xfit,yfit = None,None # will be np.array
         do_interp = True
@@ -340,7 +348,7 @@ class RateEqAgent(BaseAgent):
             else:
                 for Gfrac in Gfracs:
                     dum_df = df[df['G_frac'] == Gfrac]
-                    signal = I_factor * k_direct * dum_df['n'] * (dum_df['p'] + N_A) 
+                    signal = I_factor  * dum_df['n'] * (dum_df['p'] + N_A) #* k_direct
                     t = dum_df['t']
                     X_ = X[X[:,1] == Gfrac,0]
 
@@ -510,7 +518,7 @@ class RateEqAgent(BaseAgent):
                     Xfit = np.asarray(Xfit)
                     
         if self.detection_limit is not None:
-            yfit[yfit < self.detection_limit] = self.detection_limit
+            yfit = yfit + self.detection_limit
 
         return Xfit,yfit
 
@@ -573,15 +581,36 @@ class RateEqAgent(BaseAgent):
         
         for i in range(len(self.exp_format)):
             Xfit, yfit = self.reformat_data(df, self.X[i], parameters_rescaled, self.exp_format[i])
-            if self.compare_logs:
+            if self.compare_type == 'linear':
+                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(self.y[i],yfit,sample_weight=self.weight[i],metric_name=self.metric[i]),loss=self.loss[i])
+            elif self.compare_type == 'log':
                 epsilon = np.finfo(np.float64).eps
                 # if 0 in yfit, then add epsilon to avoid log(0)
-                yfit[abs(yfit) <= epsilon] = epsilon
+                yfit[abs(yfit) <= 0] = epsilon
                 y_ = copy.deepcopy(self.y[i])
-                y_[abs(y_) <= epsilon] = epsilon
+                y_[abs(y_) <= 0] = epsilon
                 
                 dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(np.log10(abs(y_)),np.log10(abs(yfit)),sample_weight=self.weight[i],metric_name=self.metric[i]),loss=self.loss[i])
+            elif self.compare_type == 'normalized':
+                # normalize the data
+                yfit = yfit/np.max(yfit)
+                y_ = copy.deepcopy(self.y[i])
+                y_ = y_/np.max(y_)
+                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(y_,yfit,sample_weight=self.weight[i],metric_name=self.metric[i]),loss=self.loss[i])
+            elif self.compare_type == 'normalized_log':
+                # normalize the data
+                epsilon = np.finfo(np.float64).eps
+                yfit = yfit/np.max(yfit)
+                y_ = copy.deepcopy(self.y[i])
+                y_ = y_/np.max(y_)
+                # if 0 in yfit, then add epsilon to avoid log(0)
+                yfit[abs(yfit) <= 0] = epsilon
+                y_[abs(y_) <= 0] = epsilon
+                
+                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(np.log10(abs(y_)),np.log10(abs(yfit)),sample_weight=self.weight[i],metric_name=self.metric[i]),loss=self.loss[i])
+            elif self.compare_type == 'sqrt':
+                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(np.sqrt(self.y[i]),np.sqrt(yfit),sample_weight=self.weight[i],metric_name=self.metric[i]),loss=self.loss[i])
             else:
-                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(self.y[i],yfit,sample_weight=self.weight[i],metric_name=self.metric[i]),loss=self.loss[i])
+                raise ValueError('compare_type must be either linear, log or normalized')
 
         return dum_dict

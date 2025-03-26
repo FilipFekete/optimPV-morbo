@@ -64,4 +64,5 @@ venv_boar/
 !/Data/simsalabim_test_inputs/fakePerovskite/*
 # !/Data/simsalabim_test_inputs/JVrealPerovskite/*
 !/Data/simsalabim_test_inputs/JVrealOPV/*
+!/Data/perovskite_trPL_trMC/*
 

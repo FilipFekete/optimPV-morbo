@@ -1,7 +1,7 @@
 ** SimSS Simulation Setup:
 ** Don't change the order of the parameters, comments can be added anywhere,
 ** but only after an '*'. Use '**' if you want your comment to be left-justified.
-** version: 5.18
+** version: 5.21
 
 **General***************************************************************************
 T = 295                           * K, absolute temperature
@@ -12,6 +12,7 @@ l2 = fakePerovskite.txt         * parameter file for layer 2
 l3 = C60.txt                * parameter file for layer 3
 
 **Contacts**************************************************************************
+leftElec = 1                     * left electrode is the cathode (-1) or the anode (1)
 W_L = 5.15                        * eV, work function left electrode (= cathode), or 'sfb'
 W_R = 4.05                         * eV, work function right electrode (= cathode), or 'sfb'
 S_n_L = -1E-7                     * m/s, surface recombination of electrons at the left electrode
@@ -55,8 +56,8 @@ preCond = 0                       * pre-conditioning, yes(1)/no(0)
 Vpre = 0                          * V, pre-conditioned voltage
 fixIons = 0                       * fix ions at first applied voltage? yes(1) or no (0).
 Vscan = 1                         * integer, 1 for forward sweep direction, -1 for reverse sweep
-Vmin = -1.25                          * V
-Vmax = 0                       * V
+Vmin = 0                          * V
+Vmax = 1.25                       * V
 Vstep = 0.025                     * V
 Vacc = 0                          * V, point of accumulation of row of V's, note: Vacc should be
                                   * slightly larger than Vmax or slightly lower than Vmin

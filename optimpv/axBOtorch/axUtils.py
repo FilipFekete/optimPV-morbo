@@ -207,7 +207,9 @@ def get_df_ax_client_metrics(params, ax_client, all_metrics):
     # add iteration column with 
     for par in params:
         if par.name in df.columns:
-            if par.rescale or par.force_log:
+            if par.type == 'fixed':
+                df[par.name] = par.value
+            else:
                 if par.value_type == 'int':
                     df[par.name] = df[par.name] * par.stepsize
                 elif par.value_type == 'float':
@@ -215,6 +217,20 @@ def get_df_ax_client_metrics(params, ax_client, all_metrics):
                         df[par.name] = 10 ** df[par.name]
                     else:
                         df[par.name] = df[par.name] * par.fscale
+                elif par.value_type == 'cat' or par.value_type == 'sub' or par.value_type == 'str':
+                    pass
+                elif par.value_type == 'bool':
+                    pass
                 else: 
                     raise ValueError('Trying to rescale a parameter that is not int or float')
+            # if par.rescale or par.force_log:
+            #     if par.value_type == 'int':
+            #         df[par.name] = df[par.name] * par.stepsize
+            #     elif par.value_type == 'float':
+            #         if par.force_log:
+            #             df[par.name] = 10 ** df[par.name]
+            #         else:
+            #             df[par.name] = df[par.name] * par.fscale
+            #     else: 
+            #         raise ValueError('Trying to rescale a parameter that is not int or float')
     return df
