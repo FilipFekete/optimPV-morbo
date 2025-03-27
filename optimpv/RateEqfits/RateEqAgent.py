@@ -348,7 +348,7 @@ class RateEqAgent(BaseAgent):
             else:
                 for Gfrac in Gfracs:
                     dum_df = df[df['G_frac'] == Gfrac]
-                    signal = I_factor  * dum_df['n'] * (dum_df['p'] + N_A) #* k_direct
+                    signal = I_factor * k_direct * dum_df['n'] * (dum_df['p'] + N_A) 
                     t = dum_df['t']
                     X_ = X[X[:,1] == Gfrac,0]
 
@@ -564,8 +564,7 @@ class RateEqAgent(BaseAgent):
         float
             Loss function value.
         """    
-        
-        
+                
         parameters_rescaled = self.params_rescale(parameters, self.params)
         
         df = self.run_RateEq(parameters_rescaled)
