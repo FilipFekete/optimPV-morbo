@@ -104,6 +104,7 @@ class axBOtorchOptimizer(BaseAgent):
         self.n_batches = n_batches
         self.batch_size = batch_size
         self.all_metrics = None
+        self.all_tracking_metrics = None
         self.ax_client = ax_client
         self.max_parallelism = max_parallelism
         if max_parallelism == -1:
@@ -207,6 +208,34 @@ class axBOtorchOptimizer(BaseAgent):
 
         return gs
     
+    def get_tracking_metrics(self, agents):
+        """ Extract tracking metrics from agents
+        
+        Parameters
+        ----------
+        agents : list
+            List of Agent objects
+            
+        Returns
+        -------
+        list
+            List of tracking metric names formatted with agent name prefix
+        """
+        tracking_metrics = []
+        for agent in agents:
+            if hasattr(agent, 'tracking_metric') and agent.tracking_metric is not None:
+                # Check if agent has tracking_exp_format attribute (like RateEqAgent)
+                if hasattr(agent, 'tracking_exp_format') and agent.tracking_exp_format is not None:
+                    # Use experiment format in the metric name
+                    for i in range(len(agent.tracking_metric)):
+                        exp_fmt = agent.tracking_exp_format[i] if i < len(agent.tracking_exp_format) else "unknown"
+                        tracking_metric_name = agent.name+'_'+exp_fmt+'_tracking_'+agent.tracking_metric[i]
+                        if tracking_metric_name not in tracking_metrics:
+                            tracking_metrics.append(tracking_metric_name)
+                else:
+                    raise ValueError(f"Agent {agent.name} does not have tracking_exp_format attribute.")
+        return tracking_metrics
+    
     def create_objectives(self):
         """ Create the objectives for the optimization process. The objectives are the metrics of the agents. The objectives are created using the metric, minimize and threshold attributes of the agents. If the agent has an exp_format attribute, it is used to create the objectives.
 
@@ -220,6 +249,7 @@ class axBOtorchOptimizer(BaseAgent):
         if self.all_metrics is None:
             self.all_metrics = []
             append_metrics = True
+            
         objectives = {}
         for agent in self.agents:
             for i in range(len(agent.metric)):
@@ -293,13 +323,15 @@ class axBOtorchOptimizer(BaseAgent):
         # create parameters space from params
         parameters_space = ConvertParamsAx(self.params)
 
+        # Get tracking metrics directly
+        self.all_tracking_metrics = self.get_tracking_metrics(self.agents)
+
         # create generation strategy
         gs = self.create_generation_strategy()
 
         # create ax client
         if self.ax_client is None:
             self.ax_client = AxClient(generation_strategy=gs, enforce_sequential_optimization=enforce_sequential_optimization, verbose_logging=verbose_logging,global_stopping_strategy=global_stopping_strategy)
-        
         
         # create experiment
         self.ax_client.create_experiment(
@@ -308,7 +340,7 @@ class axBOtorchOptimizer(BaseAgent):
             objectives=self.create_objectives(),
             outcome_constraints=outcome_constraints,
             parameter_constraints=parameter_constraints,
-            
+            tracking_metric_names=self.all_tracking_metrics,
         )
 
         # run optimization
@@ -408,6 +440,9 @@ class axBOtorchOptimizer(BaseAgent):
         # create parameters space from params
         parameters_space = ConvertParamsAx(self.params)
 
+        # Get tracking metrics directly
+        self.all_tracking_metrics = self.get_tracking_metrics(self.agents)
+
         # create generation strategy
         gs = self.create_generation_strategy_batch()
 
@@ -444,7 +479,7 @@ class axBOtorchOptimizer(BaseAgent):
             # objectives=self.create_objectives(),
             outcome_constraints=outcome_constraints,
             parameter_constraints=parameter_constraints,
-            
+            tracking_metric_names=self.all_tracking_metrics,
         )
         # threshold=
         if not is_multi_obj:
@@ -546,6 +581,9 @@ class axBOtorchOptimizer(BaseAgent):
 
         parameters_space = ConvertParamsAx(self.params)
         objectives=self.create_objectives()
+
+        # Get tracking metrics directly
+        self.all_tracking_metrics = self.get_tracking_metrics(self.agents)
 
         # make sure that we do not take fixed params into account
         free_pnames = [p['name'] for p in parameters_space if p['type'] != 'fixed']
@@ -660,9 +698,27 @@ class axBOtorchOptimizer(BaseAgent):
                     main_results.append({})
                     for j in range(len(results)):
                         main_results[-1].update(results[j][i])
-            Y_turbo = torch.tensor([list(res.values()) for res in main_results], device=device, dtype=dtype)
+            
+            # Only keep values from result dictionary that are in all_metrics
+            Y_turbo = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
             # multiplication factor
             Y_turbo = fac*Y_turbo
+            
+            # Also collect tracking metrics if they exist
+            Y_tracking = None
+            if self.all_tracking_metrics and len(self.all_tracking_metrics) > 0:
+                tracking_data = []
+                for res in main_results:
+                    metrics_vals = []
+                    for metric in self.all_tracking_metrics:
+                        if metric in res:
+                            metrics_vals.append(res[metric])
+                        else:
+                            metrics_vals.append(float('nan'))
+                    tracking_data.append(metrics_vals)
+                if tracking_data:
+                    Y_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
+                    
             num_sobol += self.batch_size[0]
             count_batch += 1
 
@@ -795,15 +851,37 @@ class axBOtorchOptimizer(BaseAgent):
                         for j in range(len(results)):
                             main_results[-1].update(results[j][i])
 
-                Y_next = torch.tensor([list(res.values()) for res in main_results], device=device, dtype=dtype)
+                # Only keep values from result dictionary that are in all_metrics
+                Y_next = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
                 # multiplication factor
                 Y_next = fac*Y_next
+                
+                # Also collect tracking metrics if they exist
+                Y_next_tracking = None
+                if self.all_tracking_metrics and len(self.all_tracking_metrics) > 0:
+                    tracking_data = []
+                    for res in main_results:
+                        metrics_vals = []
+                        for metric in self.all_tracking_metrics:
+                            if metric in res:
+                                metrics_vals.append(res[metric])
+                            else:
+                                metrics_vals.append(float('nan'))
+                        tracking_data.append(metrics_vals)
+                    if tracking_data:
+                        Y_next_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
+                
                 # Update state
                 state = update_state(state=state, Y_next=Y_next)
 
                 # Append data
                 X_turbo = torch.cat((X_turbo, X_next), dim=0)
                 Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
+                if Y_tracking is not None and Y_next_tracking is not None:
+                    Y_tracking = torch.cat((Y_tracking, Y_next_tracking), dim=0)
+                elif Y_next_tracking is not None:
+                    Y_tracking = Y_next_tracking
+                    
                 num_turbo += state.batch_size
                 
                 # Print current status
@@ -844,9 +922,9 @@ class axBOtorchOptimizer(BaseAgent):
             name=self.name,
             parameters=parameters_space,
             objectives=self.create_objectives(),
-            # outcome_constraints=outcome_constraints,
-            # parameter_constraints=parameter_constraints,
+            tracking_metric_names=self.all_tracking_metrics,
         )
+
         # add all data to ax
         X_turbo_un = unnormalize(X_turbo, bounds=bounds)
         for i in range(len(X_turbo_un)):
@@ -854,7 +932,14 @@ class axBOtorchOptimizer(BaseAgent):
             for j in range(len(X_turbo_un[i])):
                 dic[free_pnames[j]] = X_turbo_un[i][j].item()
             parameters, trial_index = self.ax_client.attach_trial(parameters=dic)
-            self.ax_client.complete_trial(trial_index, raw_data=fac*Y_turbo[i].item())
+            # add all_metrics and tracking_metrics to ax
+            raw_data = {}
+            for j in range(len(self.all_metrics)):
+                raw_data[self.all_metrics[j]] = fac*Y_turbo[i][j].item()
+            if Y_tracking is not None:
+                for j in range(len(self.all_tracking_metrics)):
+                    raw_data[self.all_tracking_metrics[j]] = Y_tracking[i][j].item()
+            self.ax_client.complete_trial(trial_index, raw_data=raw_data)
 
         # train the model
         self.ax_client.get_next_trial(1) # This will train the model
@@ -970,7 +1055,7 @@ def get_initial_points(dim, n_pts, seed=None, device=None, dtype=None):
         Generated points in the range [0, 1]^d
     """    
     sobol = SobolEngine(dimension=dim, scramble=True, seed=seed)
-    X_init = sobol.draw(n=n_pts).to(dtype=dtype, device=device)
+    X_init = sobol.draw(n_pts).to(dtype=dtype, device=device)
     return X_init
 
 def update_state(state, Y_next):

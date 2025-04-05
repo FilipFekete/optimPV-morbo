@@ -55,6 +55,10 @@ class DiodeAgent(BaseAgent):
         Errors in the current values, by default None.
     weight : array-like or list of array-like, optional
         Weights used for fitting if weight is None and yerr is not None, then weight = 1/yerr**2, by default None.
+    tracking_metric : str or list of str, optional
+        Additional metrics to track and report in run_Ax output, by default None.
+    tracking_loss : str or list of str, optional
+        Loss functions to apply to tracking metrics, by default None.
     name : str, optional
         Name of the agent, by default 'diode'.
     use_pvlib : bool, optional
@@ -62,7 +66,9 @@ class DiodeAgent(BaseAgent):
     **kwargs : dict
         Additional keyword arguments.
     """    
-    def __init__(self, params, X, y, T = 300, exp_format = 'light', metric = 'mse', loss = 'linear', threshold = 100, minimize = True, yerr = None, weight = None, name = 'diode', use_pvlib = False, **kwargs):
+    def __init__(self, params, X, y, T = 300, exp_format = 'light', metric = 'mse', loss = 'linear', 
+                threshold = 100, minimize = True, yerr = None, weight = None, 
+                tracking_metric = None, tracking_loss = None, name = 'diode', use_pvlib = False, **kwargs):
         # super().__init__(**kwargs)
 
         self.params = params
@@ -79,6 +85,22 @@ class DiodeAgent(BaseAgent):
         self.name = name
         self.use_pvlib = use_pvlib
         self.kwargs = kwargs
+        self.tracking_metric = tracking_metric
+        self.tracking_loss = tracking_loss
+
+        # Process tracking metrics and losses
+        if self.tracking_metric is not None:
+            if isinstance(self.tracking_metric, str):
+                self.tracking_metric = [self.tracking_metric]
+            
+            if self.tracking_loss is None:
+                self.tracking_loss = ['linear'] * len(self.tracking_metric)
+            elif isinstance(self.tracking_loss, str):
+                self.tracking_loss = [self.tracking_loss] * len(self.tracking_metric)
+                
+            # Ensure tracking_metric and tracking_loss have the same length
+            if len(self.tracking_metric) != len(self.tracking_loss):
+                raise ValueError('tracking_metric and tracking_loss must have the same length')
 
         # check that all elements in exp_format are valid
         for form in self.exp_format:
@@ -168,7 +190,19 @@ class DiodeAgent(BaseAgent):
                 y_[abs(y_) <= epsilon] = epsilon
                 
                 dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(np.log10(abs(y_)),np.log10(abs(yfit)),sample_weight=self.weight[i],metric_name=metric_name),loss=self.loss[i])
+                
+                # Calculate tracking metrics if they exist
+                if self.tracking_metric is not None:
+                    for j in range(len(self.tracking_metric)):
+                        metric_value = calc_metric(np.log10(abs(y_)), np.log10(abs(yfit)), sample_weight=self.weight[i], metric_name=self.tracking_metric[j])
+                        dum_dict[self.name+'_'+self.exp_format[i]+'_tracking_'+self.tracking_metric[j]] = loss_function(metric_value, loss=self.tracking_loss[j])
             else:
                 dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(calc_metric(self.y,yfit,sample_weight=self.weight[i],metric_name=metric_name),loss=self.loss[i])
+                
+                # Calculate tracking metrics if they exist
+                if self.tracking_metric is not None:
+                    for j in range(len(self.tracking_metric)):
+                        metric_value = calc_metric(self.y, yfit, sample_weight=self.weight[i], metric_name=self.tracking_metric[j])
+                        dum_dict[self.name+'_'+self.exp_format[i]+'_tracking_'+self.tracking_metric[j]] = loss_function(metric_value, loss=self.tracking_loss[j])
 
         return dum_dict

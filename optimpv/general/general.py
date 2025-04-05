@@ -248,3 +248,90 @@ def direct_mean_euclidean_distance(X_true, y_true, X_fit, y_fit):
 
     return np.mean(dists)
 
+def transform_data(y, y_pred, X=None, X_pred=None, transform_type='linear', epsilon=None):
+    """Transform data according to specified transformation type
+    
+    Parameters
+    ----------
+    y : array-like
+        True values to transform
+    y_pred : array-like
+        Predicted values to transform alongside y
+    X : array-like, optional
+        X coordinates of true values, by default None
+    X_pred : array-like, optional
+        X coordinates of predicted values, by default None
+    transform_type : str, optional
+        Type of transformation to apply, by default 'linear'
+        Possible values are:
+            - 'linear': No transformation
+            - 'log': Log10 transformation of absolute values
+            - 'normalized': Division by maximum value
+            - 'normalized_log': Normalization followed by log transformation
+            - 'sqrt': Square root transformation
+    epsilon : float, optional
+        Small value to add to avoid log(0), by default the machine epsilon for float64
+        
+    Returns
+    -------
+    tuple of array-like
+        (y_transformed, y_pred_transformed)
+    
+    Raises
+    ------
+    ValueError
+        If the transformation type is not implemented
+    """
+    # Make deep copies to avoid modifying the original data
+    y_transformed = np.copy(y)
+    y_pred_transformed = np.copy(y_pred)
+    
+    # Set epsilon to machine epsilon if not provided
+    if epsilon is None:
+        epsilon = np.finfo(np.float64).eps
+    
+    if transform_type.lower() == 'linear':
+        return y_transformed, y_pred_transformed
+    
+    elif transform_type.lower() == 'log':
+        # Replace zeros with epsilon to avoid log(0)
+        y_transformed = np.abs(y_transformed)
+        y_transformed[y_transformed <= 0] = epsilon
+        
+        y_pred_transformed = np.abs(y_pred_transformed)
+        y_pred_transformed[y_pred_transformed <= 0] = epsilon
+        
+        return np.log10(y_transformed), np.log10(y_pred_transformed)
+    
+    elif transform_type.lower() == 'normalized':
+        # Find the maximum value across both arrays for consistent normalization
+        max_val = max(np.max(np.abs(y_transformed)), np.max(np.abs(y_pred_transformed)))
+        if max_val > 0:  # Avoid division by zero
+            return y_transformed / max_val, y_pred_transformed / max_val
+        return y_transformed, y_pred_transformed
+    
+    elif transform_type.lower() == 'normalized_log':
+        # First normalize using the combined max value
+        max_val = max(np.max(np.abs(y_transformed)), np.max(np.abs(y_pred_transformed)))
+        if max_val > 0:  # Avoid division by zero
+            y_transformed = y_transformed / max_val
+            y_pred_transformed = y_pred_transformed / max_val
+        
+        # Then log transform
+        y_transformed = np.abs(y_transformed)
+        y_transformed[y_transformed <= 0] = epsilon
+        y_pred_transformed = np.abs(y_pred_transformed)
+        y_pred_transformed[y_pred_transformed <= 0] = epsilon
+        
+        return np.log10(y_transformed), np.log10(y_pred_transformed)
+    
+    elif transform_type.lower() == 'sqrt':
+        # Ensure values are non-negative for sqrt
+        y_transformed[y_transformed < 0] = 0
+        y_pred_transformed[y_pred_transformed < 0] = 0
+        
+        return np.sqrt(y_transformed), np.sqrt(y_pred_transformed)
+    
+    else:
+        raise ValueError(f'The transformation type {transform_type} is not implemented.')
+
