@@ -107,10 +107,17 @@ class RateEqAgent(BaseAgent):
         self.name = name
         self.kwargs = kwargs
 
+        # Set and validate experiment format
         self.exp_format = exp_format
         if isinstance(exp_format, str):
             self.exp_format = [exp_format]
+            
+        # Check that all elements in exp_format are valid
+        for form in self.exp_format:
+            if form not in ['trPL','TAS','trMC']:
+                raise ValueError(f'{form} is an invalid exp_format, must be either "trPL", "TAS" or "trMC"')
 
+        # Process main metrics and loss functions
         if self.loss is None:
             self.loss = 'linear'
         if self.metric is None:
@@ -125,7 +132,33 @@ class RateEqAgent(BaseAgent):
         if isinstance(minimize, bool):
             self.minimize = [minimize]
         
-        # Process tracking metrics and losses
+        # Process weights
+        if weight is not None:
+            # check that weight has the same length as y
+            if not len(weight) == len(y):
+                raise ValueError('weight must have the same length as y')
+            self.weight = []
+            for w in weight:
+                if isinstance(w, (list, tuple)):
+                    self.weight.append(np.asarray(w))
+                else:
+                    self.weight.append(w)
+        else:
+            if yerr is not None:
+                # check that yerr has the same length as y
+                if not len(yerr) == len(y):
+                    raise ValueError('yerr must have the same length as y')
+                self.weight = []
+                for yer in yerr:
+                    self.weight.append(1/np.asarray(yer)**2)
+            else:
+                self.weight = [None]*len(y)
+                
+        # Check that primary data dimensions match
+        if not len(self.exp_format) == len(self.metric) == len(self.loss) == len(self.threshold) == len(self.minimize) == len(self.X) == len(self.y) == len(self.weight):
+            raise ValueError('exp_format, metric, loss, threshold and minimize must have the same length')
+        
+        # Process tracking metrics
         if self.tracking_metric is not None:
             if isinstance(self.tracking_metric, str):
                 self.tracking_metric = [self.tracking_metric]
@@ -138,7 +171,7 @@ class RateEqAgent(BaseAgent):
             # Ensure tracking_metric and tracking_loss have the same length
             if len(self.tracking_metric) != len(self.tracking_loss):
                 raise ValueError('tracking_metric and tracking_loss must have the same length')
-
+                
             # Process tracking_exp_format
             if self.tracking_exp_format is None:
                 # Default to the main experiment formats if not specified
@@ -146,16 +179,14 @@ class RateEqAgent(BaseAgent):
             elif isinstance(self.tracking_exp_format, str):
                 self.tracking_exp_format = [self.tracking_exp_format]
                 
-            # check that all elements in tracking_exp_format are valid
+            # Check that all elements in tracking_exp_format are valid
             for form in self.tracking_exp_format:
                 if form not in ['trPL','TAS','trMC']:
                     raise ValueError(f'{form} is an invalid tracking_exp_format, must be either "trPL", "TAS" or "trMC"')
             
             # Process tracking_X and tracking_y
+            all_formats_in_main = all(fmt in self.exp_format for fmt in self.tracking_exp_format)
             if self.tracking_X is None or self.tracking_y is None:
-                # Check if all tracking formats are in main exp_format
-                all_formats_in_main = all(fmt in self.exp_format for fmt in self.tracking_exp_format)
-                
                 if not all_formats_in_main:
                     raise ValueError('tracking_X and tracking_y must be provided when tracking_exp_format contains formats not in exp_format')
                 
@@ -182,19 +213,18 @@ class RateEqAgent(BaseAgent):
                 raise ValueError('tracking_X and tracking_y must have the same length as tracking_exp_format')
             
             # Process tracking_weight
-            if self.tracking_weight is None:
+            if self.tracking_weight is None and all_formats_in_main:
                 # Use the main weights if available
                 self.tracking_weight = []
-                if all_formats_in_main:
-                    for fmt in self.tracking_exp_format:
-                        fmt_indices = [i for i, main_fmt in enumerate(self.exp_format) if main_fmt == fmt]
-                        if fmt_indices:
-                            idx = fmt_indices[0]
-                            self.tracking_weight.append(self.weight[idx])
-                        else:
-                            self.tracking_weight.append(None)
-                else:
-                    self.tracking_weight = [None] * len(self.tracking_exp_format)
+                for fmt in self.tracking_exp_format:
+                    fmt_indices = [i for i, main_fmt in enumerate(self.exp_format) if main_fmt == fmt]
+                    if fmt_indices:
+                        idx = fmt_indices[0]
+                        self.tracking_weight.append(self.weight[idx])
+                    else:
+                        self.tracking_weight.append(None)
+            elif self.tracking_weight is None:
+                self.tracking_weight = [None] * len(self.tracking_exp_format)
             elif not isinstance(self.tracking_weight, list):
                 self.tracking_weight = [self.tracking_weight]
                 
@@ -202,53 +232,18 @@ class RateEqAgent(BaseAgent):
             if len(self.tracking_weight) != len(self.tracking_exp_format):
                 raise ValueError('tracking_weight must have the same length as tracking_exp_format')
 
-        # check that all elements in exp_format are valid
-        for form in self.exp_format:
-            if form not in ['trPL','TAS','trMC']:
-                raise ValueError(f'{form} is an invalid exp_format, must be either "trPL", "TAS" or "trMC"')
-        for form in self.tracking_exp_format:
-            if form not in ['trPL','TAS','trMC']:
-                raise ValueError(f'{form} is an invalid tracking_exp_format, must be either "trPL", "TAS" or "trMC"')
-
-        if weight is not None:
-            # check that weight has the same length as y
-            if not len(weight) == len(y):
-                raise ValueError('weight must have the same length as y')
-            self.weight = []
-            for w in weight:
-                if isinstance(w, (list, tuple)):
-                    self.weight.append(np.asarray(w))
-                else:
-                    self.weight.append(w)
-        else:
-            if yerr is not None:
-                # check that yerr has the same length as y
-                if not len(yerr) == len(y):
-                    raise ValueError('yerr must have the same length as y')
-                self.weight = []
-                for yer in yerr:
-                    self.weight.append(1/np.asarray(yer)**2)
-            else:
-                self.weight = [None]*len(y)
-
-        # check that exp_format, metric, loss, threshold and minimize have the same length
-        if not len(self.exp_format) == len(self.metric) == len(self.loss) == len(self.threshold) == len(self.minimize) == len(self.X) == len(self.y) == len(self.weight):
-            raise ValueError('exp_format, metric, loss, threshold and minimize must have the same length')  
-        
-        if tracking_exp_format is not None:
-            # check that tracking_exp_format, tracking_metric and tracking_loss have the same length
+            # Check that tracking dimensions match
             if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
                 raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
-
-        # self.compare_logs = self.kwargs.get('compare_logs',False) 
-        # if 'compare_logs' in self.kwargs.keys():
-        #     self.kwargs.pop('compare_logs')
-        self.compare_type = self.kwargs.get('compare_type','linear')
+        
+        # Process compare_type parameter
+        self.compare_type = self.kwargs.get('compare_type', 'linear')
         if 'compare_type' in self.kwargs.keys():
             self.kwargs.pop('compare_type')
-        #compare type can be linear or log or normalized
-        if self.compare_type not in ['linear','log','normalized','normalized_log','sqrt']:
-            raise ValueError('compare_type must be either linear, log or normalized')
+            
+        # Validate compare_type
+        if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
+            raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
     
     def run_RateEq(self,parameters):
         """Run the diode model and calculate the loss function

@@ -7,7 +7,7 @@ import pandas as pd
 from scipy import interpolate, constants
 
 from optimpv import *
-from optimpv.general.general import calc_metric, loss_function
+from optimpv.general.general import calc_metric, loss_function, transform_data
 from optimpv.general.BaseAgent import BaseAgent
 from optimpv.TransferMatrix.TransferMatrixModel import *
 
@@ -56,6 +56,17 @@ class TransferMatrixAgent(BaseAgent):
             Threshold value for the loss function, by default 10.
         minimize : bool or list, optional
             Whether to minimize the loss function, by default False.
+        tracking_metric : str or list of str, optional
+            Additional metrics to track and report in run_Ax output, by default None.
+        tracking_loss : str or list of str, optional
+            Loss functions to apply to tracking metrics, by default None.
+        tracking_exp_format : str or list of str, optional
+            Experimental formats for tracking metrics, by default None.
+        tracking_y : array-like or list of array-like, optional
+            y values for tracking metrics, by default None.
+        compare_type : str, optional
+            Type of comparison to use for metrics, by default 'linear'.
+            Options: 'linear', 'log', 'normalized', 'normalized_log', 'sqrt'.
         name : str, optional
             Name of the agent, by default 'TM'.
 
@@ -64,7 +75,12 @@ class TransferMatrixAgent(BaseAgent):
         ValueError
             If any of the required parameters are not defined or if there is a mismatch in the lengths of metric, loss, threshold, minimize, and exp_format.
     """    
-    def __init__(self, params, y = None, layers = None, thicknesses=None, activeLayer=None,lambda_min=350e-9, lambda_max=800e-9,lambda_step=1e-9,x_step =1e-9, mat_dir=None,spectrum=None,photopic_file=None,exp_format='Jsc', metric=None, loss=None, threshold=10, minimize=False, name='TM'):
+    def __init__(self, params, y = None, layers = None, thicknesses=None, activeLayer=None,
+                 lambda_min=350e-9, lambda_max=800e-9, lambda_step=1e-9, x_step=1e-9, 
+                 mat_dir=None, spectrum=None, photopic_file=None, exp_format='Jsc', 
+                 metric=None, loss=None, threshold=10, minimize=False,
+                 tracking_metric=None, tracking_loss=None, tracking_exp_format=None,
+                 tracking_y=None, compare_type='linear', name='TM'):
     
         self.params = params
         self.y = y
@@ -84,6 +100,11 @@ class TransferMatrixAgent(BaseAgent):
         self.threshold = threshold
         self.minimize = minimize
         self.name = name
+        self.compare_type = compare_type
+        self.tracking_metric = tracking_metric
+        self.tracking_loss = tracking_loss
+        self.tracking_exp_format = tracking_exp_format
+        self.tracking_y = tracking_y
 
         if isinstance(metric, str):
             self.metric = [metric]
@@ -95,12 +116,11 @@ class TransferMatrixAgent(BaseAgent):
             self.minimize = [minimize]
         if isinstance(exp_format, str):
             self.exp_format = [exp_format]
-
         
         # check that all elements in exp_format are valid
         for form in self.exp_format:
             if form not in ['Jsc','AVT','LUE']:
-                raise ValueError('{form} is an invalid impedance format. Possible values are: Jsc, AVT, LUE')
+                raise ValueError(f'{form} is an invalid impedance format. Possible values are: Jsc, AVT, LUE')
             
         if len(self.metric) != len(self.loss) or len(self.metric) != len(self.threshold) or len(self.metric) != len(self.minimize) or len(self.metric) != len(self.exp_format):
             raise ValueError('metric, loss, threshold, minimize and exp_format must have the same length')
@@ -108,8 +128,69 @@ class TransferMatrixAgent(BaseAgent):
         for i in range(len(self.metric)):
             if self.metric[i] is None:
                 self.metric[i] = ''
-
         
+        # Validate compare_type
+        if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
+            raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
+                
+        # Process tracking metrics and losses
+        if self.tracking_exp_format is not None:
+            if isinstance(self.tracking_exp_format, str):
+                self.tracking_exp_format = [self.tracking_exp_format]
+
+            if isinstance(self.tracking_metric, str) or self.tracking_metric is None:
+                self.tracking_metric = [self.tracking_metric]
+            
+            # if self.tracking_loss is None or isinstance(self.tracking_loss, str):
+            #     self.tracking_loss = ['linear'] * len(self.tracking_metric)
+            if isinstance(self.tracking_loss, str) or self.tracking_loss is None:
+                self.tracking_loss = [self.tracking_loss] * len(self.tracking_metric)
+                
+            # Ensure tracking_metric and tracking_loss have the same length
+            if len(self.tracking_metric) != len(self.tracking_loss):
+                raise ValueError('tracking_metric and tracking_loss must have the same length')
+
+            # Process tracking_exp_format
+            if self.tracking_exp_format is None:
+                # Default to the main experiment formats if not specified
+                self.tracking_exp_format = self.exp_format
+            elif isinstance(self.tracking_exp_format, str):
+                self.tracking_exp_format = [self.tracking_exp_format]
+                
+            # check that all elements in tracking_exp_format are valid
+            for form in self.tracking_exp_format:
+                if form not in ['Jsc','AVT','LUE']:
+                    raise ValueError(f'{form} is an invalid tracking_exp_format, must be one of: Jsc, AVT, LUE')
+            
+            # Process tracking_y
+            if self.tracking_y is None:
+                # Construct tracking_y from main y based on matching formats
+                self.tracking_y = []
+                
+                for fmt in self.tracking_exp_format:
+                    fmt_indices = [i for i, main_fmt in enumerate(self.exp_format) if main_fmt == fmt]
+                    if fmt_indices:
+                        # Use the first matching format's data
+                        idx = fmt_indices[0]
+                        self.tracking_y.append(self.y[idx])
+            if len(self.tracking_y) == 0:
+                self.tracking_y = [None] * len(self.tracking_exp_format)
+            # Ensure tracking_y is a list
+            if not isinstance(self.tracking_y, list):
+                self.tracking_y = [self.tracking_y]
+
+            # Check that tracking_y has the right length
+            if len(self.tracking_y) != len(self.tracking_exp_format):
+                raise ValueError('tracking_y must have the same length as tracking_exp_format')
+            
+            # check that tracking_exp_format, tracking_metric and tracking_loss have the same length
+            if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
+                raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
+            
+        for i in range(len(self.tracking_metric)):
+            if self.tracking_metric[i] is None:
+                self.tracking_metric[i] = ''
+
         # check that layers, thicknesses and activeLayer and spectrum are not None
         if self.layers is None:
             raise ValueError('layers must be defined')
@@ -178,7 +259,7 @@ class TransferMatrixAgent(BaseAgent):
         return Jsc, AVT, LUE
     
     def run_Ax(self,parameters):
-        """Run the diode model and calculate the loss function
+        """Run the transfer matrix model and calculate the loss function
 
         Parameters
         ----------
@@ -195,12 +276,69 @@ class TransferMatrixAgent(BaseAgent):
         res_dict = {'Jsc':Jsc,'AVT':AVT,'LUE':LUE}
 
         dum_dict = {}
+        # First loop: calculate main metrics for each exp_format
         for i in range(len(self.exp_format)):
             if self.loss[i] is None:
                 dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = self.target_metric(res_dict[self.exp_format[i]],self.metric[i])
             else:
-                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(self.target_metric([self.y[i]],yfit=[res_dict[self.exp_format[i]]],metric_name=self.metric[i]),self.loss[i])
-   
+                result = res_dict[self.exp_format[i]]
+                
+                # Apply data transformation based on compare_type
+                if self.compare_type == 'linear':
+                    metric_value = self.target_metric(res_dict[self.exp_format[i]],self.metric[i])
+                else:
+                    y_true_transformed, y_pred_transformed = transform_data(
+                        [self.y[i]], 
+                        [result], 
+                        transform_type=self.compare_type
+                    )
+                    
+                    # Calculate metric with transformed data
+                    metric_value = self.target_metric(
+                        y_true_transformed, 
+                        y_pred_transformed, 
+                        metric_name=self.metric[i]
+                    )
+    
+                # Calculate the loss function based on the metric value
+                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(metric_value, loss=self.loss[i])
+        
+        # Second loop: calculate all tracking metrics
+        if self.tracking_exp_format is not None:
+            for j in range(len(self.tracking_exp_format)):
+                exp_fmt = self.tracking_exp_format[j]
+                metric_name = self.tracking_metric[j]
+                loss_type = self.tracking_loss[j]
+                result = res_dict[exp_fmt]
+                if loss_type is None:
+                    dum_dict[self.name+'_'+exp_fmt+'_tracking_'+metric_name] = self.target_metric(res_dict[exp_fmt], metric_name)
+                else:
+
+                    # Apply data transformation based on compare_type
+                    if self.compare_type == 'linear':
+                        metric_value = self.target_metric(
+                            [self.tracking_y[j]],
+                            [result],
+                            metric_name
+                        )
+                    else:
+                        # Transform data for each format
+                        y_true_transformed, y_pred_transformed = transform_data(
+                            [self.tracking_y[j]], 
+                            [result], 
+                            transform_type=self.compare_type
+                        )
+                        
+                        # Calculate metric with transformed data
+                        metric_value = self.target_metric(
+                            y_true_transformed, 
+                            y_pred_transformed, 
+                            metric_name=metric_name
+                        )
+
+                    # Calculate the loss function based on the metric value
+                    dum_dict[self.name+'_'+exp_fmt+'_tracking_'+metric_name] = loss_function(metric_value, loss=loss_type)
+        
         return dum_dict
 
 
