@@ -664,8 +664,8 @@ class axBOtorchOptimizer(BaseAgent):
             dics = []
             for p in X_turbo_un:
                 p = p.cpu().numpy()
-                # write p into a dict with the param names as keys
-                p = {self.params[i].name: p[i] for i in range(len(self.params))}
+                # write p into a dict with the param names as keys if the param is not fixed
+                p = {self.params[i].name: p[i] for i in range(len(self.params)) if self.params[i].type != 'fixed'}
                 dics.append(p)
 
             # run agents 
@@ -818,7 +818,7 @@ class axBOtorchOptimizer(BaseAgent):
                 for p in X_next_un:
                     p = p.cpu().numpy()
                     # write p into a dict with the param names as keys
-                    p = {self.params[i].name: p[i] for i in range(len(self.params))}
+                    p = {self.params[i].name: p[i] for i in range(len(self.params)) if self.params[i].type != 'fixed'}
                     dics.append(p)
                 # run agents
                 if parallel_agents:
@@ -931,6 +931,10 @@ class axBOtorchOptimizer(BaseAgent):
             dic = {}
             for j in range(len(X_turbo_un[i])):
                 dic[free_pnames[j]] = X_turbo_un[i][j].item()
+            # add fixed params to dic
+            for p in self.params:
+                if p.type == 'fixed':
+                    dic[p.name] = p.value
             parameters, trial_index = self.ax_client.attach_trial(parameters=dic)
             # add all_metrics and tracking_metrics to ax
             raw_data = {}
