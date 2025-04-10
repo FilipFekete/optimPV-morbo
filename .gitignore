@@ -39,6 +39,7 @@ temp/
 !docs/index.html
 !docs/source/*.rst
 !docs/source/*.py
+!docs/source/examples/*.rst
 !docs/source/examples/*.ipynb
 !Download_SIMsalabim.py
 !Notebooks/*.ipynb
