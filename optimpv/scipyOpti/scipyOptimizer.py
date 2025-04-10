@@ -268,7 +268,11 @@ class ScipyOptimizer(BaseAgent):
         """
         if self.verbose_logging:
             print(f"Starting optimization using {self.method} method")
-        
+        if 'tol' in self.options:
+            tol = self.options['tol']
+        else:
+            tol = None
+
         # Create the metrics list
         if self.all_metrics is None:
             self.all_metrics = self.create_metrics_list()
@@ -322,7 +326,8 @@ class ScipyOptimizer(BaseAgent):
                 x0,
                 method=self.method,
                 bounds=bounds,
-                options=self.options
+                options=self.options,
+                tol=tol
             )
             
             self.results = result

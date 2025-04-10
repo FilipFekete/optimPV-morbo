@@ -151,6 +151,7 @@ def BTD_model(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate=True,
     ----------
     parameters : dict
         dictionary containing the parameters of the model it must contain 'k_trap', 'k_direct', 'k_detrap', 'N_t_bulk' and 'N_A'.
+
             k_trap : float
                 Trapping rate constant in m^3 s^-1
             k_direct : float
@@ -161,6 +162,7 @@ def BTD_model(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate=True,
                 Bulk trap density in m^-3
             N_A : float
                 Ionized p-doping concentration in m^-3
+
     t : ndarray of shape (n,)
         time values in s
     Gpulse : ndarray of shape (n,)
@@ -183,10 +185,11 @@ def BTD_model(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate=True,
         whether to output the trapped electron concentration, by default False
     kwargs : dict
         additional keyword arguments for the solver function
-        'method' : str, optional
-            method to use for the solver, by default 'RK45'
-        'rtol' : float, optional
-            relative tolerance, by default 1e-3
+
+            'method' : str, optional
+                method to use for the solver, by default 'RK45'
+            'rtol' : float, optional
+                relative tolerance, by default 1e-3
 
     Returns
     -------
