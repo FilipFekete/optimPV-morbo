@@ -40,7 +40,9 @@ setuptools.setup(
         'torch>=2.0',
         'torchvision>=0.15',
         'torchaudio>=2.0',
+        'emcee>=3.1',
         'ax-platform>=0.5',
+        
     ],
     extras_require = {
         'dev': [

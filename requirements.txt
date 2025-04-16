@@ -4,7 +4,7 @@ ax-platform
 torch
 torchvision
 torchaudio
-ax-platform
+emcee
 gitpython
 tk
 pyodbc

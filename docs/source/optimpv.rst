@@ -7,6 +7,7 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
+   optimpv.BayesInfEmcee
    optimpv.DDfits
    optimpv.Diodefits
    optimpv.RateEqfits
