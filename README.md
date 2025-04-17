@@ -1,3 +1,7 @@
+
+
+<img src="./docs/logo/optimPV_logo.png" alt="optimPV logo" width="100px">  
+
 # optimPV: Optimization & Modeling tools for PV research
 
 ## Authors
@@ -25,7 +29,7 @@ This repository contains the code to run **optimPV**. optimPV combines sevral op
             ├── TransferMatrix           # Directory with the agent to run the transfer matrix simulations
         ├── Notebooks                    # Contains clean versions of the Notebooks
         ├── Data                         # Contains some example data for the notebooks
-        ├── SIMsalabim                   # Contains the codes to run the drift-diffusion simulations using SIMsalabim
+        ├── docs                         # Contains the documentation
         ├── test                         # Contains the codes for testing optimPV
     └── README.md
 

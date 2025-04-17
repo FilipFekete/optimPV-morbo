@@ -6,7 +6,11 @@ import os
 import sys
 # import optimpv from two folders up
 sys.path.insert(0, os.path.abspath('../../'))
+sys.path.insert(0, os.path.abspath('../'))
 import optimpv
+import shutil
+from pathlib import Path
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -48,8 +52,23 @@ source_suffix = {
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
+# ensure custom.css lives in _static/css for HTML builds
+src = Path(__file__).parent / 'custom.css'
+dest_dir = Path(__file__).parent / '_static' / 'css'
+dest_dir.mkdir(parents=True, exist_ok=True)
+shutil.copy2(src, dest_dir / 'custom.css')
+
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+html_logo = "optimPV_logo.png"
+html_theme_options = {
+    'logo_only': True,
+    'display_version': False,
+}
+# load a custom CSS to size the logo
+html_css_files = [
+    'css/custom.css',
+]
 
 # -- Options for sphinx_gallery ----------------------------------------------
 from plotly.io._sg_scraper import plotly_sg_scraper
