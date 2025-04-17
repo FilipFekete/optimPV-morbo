@@ -1,6 +1,13 @@
+.. image:: ../logo/optimPV_logo.png
+   :alt: optimPV logo
+   :width: 200px
+   :align: left
+
+|
 optimPV: Optimization & Modeling Tools for PV Research
 ======================================================
-
+|
+|
 Welcome to the optimPV documentation!
 
 Authors
@@ -94,6 +101,7 @@ This repository is still under development. If you find any bugs or have any que
    :maxdepth: 2
    :caption: Rate equation models:
 
+   ../examples/test_TAS.ipynb
    ../examples/test_MO_trPL_trMC.ipynb
 
 .. toctree::

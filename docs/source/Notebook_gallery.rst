@@ -13,5 +13,6 @@ All notebooks
    ../examples/test_MO_JV_impedance_fakePerovskite.ipynb
    ../examples/test_TransferMatrix.ipynb
    ../examples/test_MO_trPL_trMC.ipynb
+   ../examples/test_TAS.ipynb
    ../examples/test_TAS_BayesInf.ipynb
    ../examples/test_diode.ipynb
