@@ -33,6 +33,7 @@ temp/
 /docs/source/_static
 /docs/source/_templates
 /docs/source/auto_examples
+/build/
 
 # Exceptions
 !docs/logo/**
