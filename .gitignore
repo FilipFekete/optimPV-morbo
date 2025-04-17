@@ -36,6 +36,7 @@ temp/
 
 # Exceptions
 !docs/logo/**
+!docs/source/optimPV_logo.png
 !docs/index.html
 !docs/source/*.rst
 !docs/source/*.py
