@@ -12,6 +12,7 @@ Subpackages
    optimpv.Diodefits
    optimpv.RateEqfits
    optimpv.TransferMatrix
+   optimpv.axBOtorch
    optimpv.general
    optimpv.posterior
    optimpv.scipyOpti
