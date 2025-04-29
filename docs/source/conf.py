@@ -15,9 +15,9 @@ from pathlib import Path
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'optimpv'
-copyright = '2025, Vincent M. Le Corre'
+copyright = '2025, Vincent M. Le Corre, Larry Lüer'
 author = 'Vincent M. Le Corre'
-release = '1'
+release = '1.01'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -63,7 +63,7 @@ html_static_path = ['_static']
 html_logo = "optimPV_logo.png"
 html_theme_options = {
     'logo_only': True,
-    'display_version': False,
+    # 'display_version': False,
 }
 # load a custom CSS to size the logo
 html_css_files = [

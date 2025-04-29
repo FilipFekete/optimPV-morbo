@@ -4,21 +4,26 @@
    :align: left
 
 |
+
 optimPV: Optimization & Modeling Tools for PV Research
 ======================================================
+
 |
 |
+
 Welcome to the optimPV documentation!
 
 Authors
 -------
 - `Vincent M. Le Corre <https://github.com/VMLC-PV>`_
+- `Larry Lüer <https://github.com/larryluer>`_
 
 Institution
 -----------
 .. image:: ../logo/sdu_logo.jpg
    :alt: SDU logo
    :width: 100px
+   
 CAPE - Centre for Advanced Photovoltaics and Thin-film Energy Devices, University of Southern Denmark, Denmark
 
 Description

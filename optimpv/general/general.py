@@ -20,6 +20,7 @@ def calc_metric(y,yfit,sample_weight=None,metric_name='mse'):
     metric_name : str, optional
         Name of the metric to calculate, by default 'mse'  
         Possible values are:
+
             - 'mse': Mean Squared Error
             - 'mae': Mean Absolute Error
             - 'mape': Mean Absolute Percentage Error
@@ -264,6 +265,7 @@ def transform_data(y, y_pred, X=None, X_pred=None, transform_type='linear', epsi
     transform_type : str, optional
         Type of transformation to apply, by default 'linear'
         Possible values are:
+        
             - 'linear': No transformation
             - 'log': Log10 transformation of absolute values
             - 'normalized': Division by maximum value

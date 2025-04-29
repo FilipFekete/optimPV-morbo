@@ -252,16 +252,29 @@ class ImpedanceAgent(SIMsalabimAgent):
         if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
             raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
         
-        max_time_out = self.kwargs.get('max_timeout', 30)
-        time_out = 0
-        while time_out < max_time_out:
+        # check if simulation_setup file exists
+        if not os.path.exists(os.join(self.session_path,self.simulation_setup)):
+            raise ValueError('simulation_setup file does not exist: {}'.format(os.path.join(self.session_path,self.simulation_setup)))
+        if os.name != 'nt':
             try:
                 dev_par, layers = load_device_parameters(session_path, simulation_setup, run_mode = False)
-                break
-            except:
-                pass 
-            time.sleep(0.002)
-            time_out += 0.002
+            except Exception as e:
+                raise ValueError('Error loading device parameters check that all the input files are in the right directory. \n Error: {}'.format(e))
+        else:
+            warning_timeout = self.kwargs.get('warning_timeout', 10)
+            exit_timeout = self.kwargs.get('exit_timeout', 60)
+            t_wait = 0
+            while True: # need this to be thread safe
+                try:
+                    dev_par, layers = load_device_parameters(session_path, simulation_setup, run_mode = False)
+                    break
+                except Exception as e:
+                    time.sleep(0.002)
+                    t_wait = t_wait + 0.002
+                    if t_wait > warning_timeout:
+                        print('Warning: SIMsalabim is not responding, please check that all the input files are in the right directory')
+                    if t_wait > exit_timeout:
+                        raise ValueError('Error loading device parameters check that all the input files are in the right directory. \n Error: {}'.format(e))
 
         
         self.dev_par = dev_par

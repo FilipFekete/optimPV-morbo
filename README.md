@@ -6,6 +6,7 @@
 
 ## Authors
 [Vincent M. Le Corre](https://github.com/VMLC-PV)  
+[Larry Lüer](https://github.com/larryluer)
 
 ## Institution
 <img src="./docs/logo/sdu_logo.jpg" alt="SDU logo" width="100px"> CAPE - Centre for Advanced Photovoltaics and Thin-film Energy Devices, University of Southern Denmark, Denmark
@@ -20,6 +21,7 @@ This repository contains the code to run **optimPV**. optimPV combines sevral op
     ├── Main                             # Main directory
         ├── optimPV                      # Main directory for the optimPV codes
             ├── axBOtorch                # Directory with the Bayesian optimization (BO) codes using BoTorch and Ax
+            ├── BayesInfEmcee            # Directory with the Bayesian inference codes using emcee
             ├── DDfits                   # Directory with the different agents to run the drift-diffusion simulator  [SIMsalabim](https://github.com/kostergroup/SIMsalabim) for JV, Hysteresis, Impedance, CV and IMPS simulations and fitting
             ├── Diodefits                # Directory with the agent to simulate and fit the non-ideal diode equation model
             ├── general                  # Directory with general utility functions used by the different agents

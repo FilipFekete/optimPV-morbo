@@ -37,6 +37,10 @@ class BaseAgent():
 
         for param in params:
             if param.name in parameters.keys():
+                if param.type == 'fixed':
+                    param.value = parameters[param.name]
+                    continue
+
                 if param.value_type == 'float':
                     if param.force_log:
                         param.value = 10**float(parameters[param.name])
@@ -131,6 +135,9 @@ class BaseAgent():
         """    
         dum_dict = {}
         for param in params:
+            if param.type == 'fixed':
+                dum_dict[param.name] = param.value
+                continue
             if param.name in parameters.keys():
                 if param.value_type == 'float':
                     if param.force_log:
