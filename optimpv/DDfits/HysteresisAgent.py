@@ -253,7 +253,7 @@ class HysteresisAgent(SIMsalabimAgent):
             raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
         
         # check if simulation_setup file exists
-        if not os.path.exists(os.join(self.session_path,self.simulation_setup)):
+        if not os.path.exists(os.path.join(self.session_path,self.simulation_setup)):
             raise ValueError('simulation_setup file does not exist: {}'.format(os.path.join(self.session_path,self.simulation_setup)))
         if os.name != 'nt':
             try:
