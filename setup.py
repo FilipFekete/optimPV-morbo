@@ -35,7 +35,7 @@ setuptools.setup(
         'openpyxl>=3.0',
         'pyodbc>=4.0',
         'scikit-optimize>=0.9',
-        'pySIMsalabim>=1.1',
+        'pySIMsalabim>=1.2',
         'tk',
         'torch>=2.0',
         'torchvision>=0.15',
