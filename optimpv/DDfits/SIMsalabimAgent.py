@@ -19,22 +19,27 @@ class SIMsalabimAgent(BaseAgent):
     
     def __init__(self) -> None:
         pass
-        
 
-    def get_SIMsalabim_clean_cmd(self, parameters, sim_type='simss'):
-        """Get the command line arguments for the SIMsalabim simulation with properly formatted parameters
+    def get_SIMsalabim_clean_cmd_pars(self, parameters):
+        """Get the clean cmd_pars list for the SIMsalabim simulation with properly formatted parameters
 
         Parameters
         ----------
         parameters : dict or list of Fitparam() objects
             dictionary of parameter names and values or list of Fitparam() objects
-        sim_type : str, optional
-            type of simulation ('simss' or 'zimt'), by default 'simss'
 
         Returns
         -------
-        str
-            command line arguments for the SIMsalabim simulation
+        list of dict
+            list of dictionaries containing the parameters that have a direct match in the SIMsalabim parameter files with the following form {'par': string, 'val': string}
+        Raises
+        ------
+        ValueError
+            Parameter name is not defined in the SIMsalabim parameter files. Please check the parameter names.
+        ValueError
+            Parameter name is defined in both the parameters and cmd_pars. Please remove one of them.
+        UserWarning
+            Parameter name is not defined in the SIMsalabim parameter files. Please check the parameter names. The optimization will proceed but the parameter will not be used by SIMsalabim.
         """        
 
         # if parameters is not a dict:
@@ -69,11 +74,33 @@ class SIMsalabimAgent(BaseAgent):
             cmd_pars = []
 
         custom_pars, clean_pars, VarNames = self.prepare_cmd_pars(dummy_pars, custom_pars, clean_pars, VarNames)
-
+        
         clean_pars = self.energy_level_offsets(custom_pars, clean_pars)
+        
+        clean_pars = self.Gamma_pre_reset(clean_pars,custom_pars)
 
+        return clean_pars
+    
+    def get_SIMsalabim_clean_cmd(self, parameters, sim_type='simss'):
+        """Get the command line arguments for the SIMsalabim simulation with properly formatted parameters
+
+        Parameters
+        ----------
+        parameters : dict or list of Fitparam() objects
+            dictionary of parameter names and values or list of Fitparam() objects
+        sim_type : str, optional
+            type of simulation ('simss' or 'zimt'), by default 'simss'
+
+        Returns
+        -------
+        str
+            command line arguments for the SIMsalabim simulation
+        """        
+
+        # get the clean cmd_pars
+        clean_pars = self.get_SIMsalabim_clean_cmd_pars(parameters)
         self.check_duplicated_parameters(clean_pars)
-
+        # construct the command line arguments
         return construct_cmd(sim_type, clean_pars)
     
 
@@ -440,8 +467,57 @@ class SIMsalabimAgent(BaseAgent):
                 clean_pars.append({'par': 'W_R', 'val': str(W_R)})
                 tmp_SIMsalabim_params['setup']['W_R'] = str(W_R)
 
-        return clean_pars    
-                
+        return clean_pars
+
+    def Gamma_pre_reset(self, cmd_pars, custom_pars):
+        """Prepare the Langevin pre-factor parameters for the SIMsalabim simulation but use it to calculate k_direct instead of passing preLangevin to SIMsalabim.
+
+        Parameters
+        ----------
+        cmd_pars : list of dict
+            list of dictionaries with the following form {'par': string, 'val': string}
+        custom_pars : list of dict
+            list of dictionaries with the following form {'par': string, 'val': string}
+
+        Returns
+        -------
+        list of dict
+            list of dictionaries with the following form {'par': string, 'val': string}
+        """ 
+        tmp_SIMsalabim_params = copy.deepcopy(self.SIMsalabim_params)
+        clean_pars, Gammas = [], []
+        for cmd in cmd_pars:
+            if '.' not in cmd['par'] :
+                clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
+                continue
+            else:
+                if 'mu_n' in cmd['par'] or 'mu_p' in cmd['par']: # make sure we update the mobilities in the tmp_SIMsalabim_params
+                    if '.' not in cmd['par']:
+                        continue
+                    layer, par = cmd['par'].split('.')
+                    if par == 'mu_n':
+                        tmp_SIMsalabim_params[layer]['mu_n'] = cmd['val']
+                    elif par == 'mu_p':
+                        tmp_SIMsalabim_params[layer]['mu_p'] = cmd['val']
+                    clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
+                else:
+                    clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
+        for cmd in custom_pars:
+                if 'Gamma_pre' in cmd['par']:
+                    Gammas.append({'par': cmd['par'], 'val': cmd['val']})
+        # now we need to add the Gamma_pre parameters to the clean_pars
+        for gamma in Gammas:
+            layer, par = gamma['par'].split('.')
+            mob_n = tmp_SIMsalabim_params[layer]['mu_n']
+            mob_p = tmp_SIMsalabim_params[layer]['mu_p']
+            eps_r = tmp_SIMsalabim_params[layer]['eps_r']
+            eps_0 = 8.8542e-12  # same as in SIMsalabim
+            q = 1.6022e-19 # same as in SIMsalabim
+            k_direct = float(gamma['val']) * q * (float(mob_n) + float(mob_p)) / (float(eps_r) * eps_0)
+            clean_pars.append({'par': layer+'.k_direct', 'val': str(k_direct)})
+
+        return clean_pars
+    
     def check_duplicated_parameters(self, cmd_pars):
         """Check if there are duplicated parameters in the cmd_pars
 

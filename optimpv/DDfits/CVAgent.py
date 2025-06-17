@@ -449,13 +449,7 @@ class CVAgent(SIMsalabimAgent):
 
 
         # prepare the cmd_pars for the simulation
-        custom_pars, clean_pars, VarNames = self.prepare_cmd_pars(parameters, custom_pars, clean_pars, VarNames)
-
-        # check if there are any custom_pars that are energy level offsets
-        clean_pars = self.energy_level_offsets(custom_pars, clean_pars)
-
-        # check if there are any duplicated parameters in cmd_pars
-        self.check_duplicated_parameters(clean_pars)
+        clean_pars = self.get_SIMsalabim_clean_cmd_pars(parameters)
         
         # Run the CV simulation
         UUID = self.kwargs.get('UUID',str(uuid.uuid4()))
