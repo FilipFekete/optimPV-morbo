@@ -15,7 +15,6 @@ q = constants.value(u'elementary charge')
 eps_0 = constants.value(u'electric constant')
 kb = constants.value(u'Boltzmann constant in eV/K')
 c = constants.value(u'speed of light in vacuum')
-h_eV = constants.value(u'Planck constant in eV s')
 h_J = constants.value(u'Planck constant')
 
 ######### Function Definitions ####################################################################
@@ -216,19 +215,19 @@ def initial_carrier_density(t, fpu, N0, background = 0, G_frac = 1):
     ndarray of shape (n,)
         initial carrier density in m^-3
     """   
-    n = np.zeros(len(t))
+    pump = np.zeros(len(t))
     # repeat the initial carrier density every 1/fpu
     count = 1
-    # n[0] = N0*G_frac # was like this but it is actually redondant with the fact that N0 is passed to the solver directly in RateEqModel
-    n[0] = 0
+    # pump[0] = N0*G_frac # was like this but it is actually redondant with the fact that N0 is passed to the solver directly in RateEqModel
+    pump[0] = 0
     for idx, tt in enumerate(t):
         if idx == 0:
             continue
 
         if tt >= count/fpu and t[idx-1] <= count/fpu:
-            n[idx] = N0 * G_frac
+            dt = t[idx+1] - t[idx-1]
+            pump[idx] = N0 * G_frac / dt
             count += 1
-    
 
-    n = n + background 
-    return n
+    pump = pump + background
+    return pump

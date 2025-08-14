@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import ax
 from ax import *
+from ax.api.configs import RangeParameterConfig, ChoiceParameterConfig
+from ax.core.batch_trial import BatchTrial
 from ax.service.ax_client import ObjectiveProperties
 from ax.core.base_trial import TrialStatus
 
@@ -32,38 +34,38 @@ def ConvertParamsAx(params):
     if params is None:
         raise ValueError('The params argument is None')
     
-    ax_params = []
+    ax_params,fixed_params = [],{}
     for param in params:
         if param.value_type == 'float':
             if param.type == 'fixed':
-                ax_params.append({'name': param.name, 'type': 'fixed', 'value': float(param.value), 'value_type': 'float'})
+                fixed_params[param.name] = float(param.value)
             else:
                 if param.force_log:
-                    ax_params.append({'name': param.name, 'type': 'range', 'bounds': [np.log10(param.bounds[0]), np.log10(param.bounds[1])], 'value_type': 'float', 'log_scale': False})
+                    ax_params.append(RangeParameterConfig(name=param.name, bounds=[np.log10(param.bounds[0]), np.log10(param.bounds[1])], parameter_type='float', scaling="linear"))
                 else:
                     if param.log_scale:
-                        ax_params.append({'name': param.name, 'type': 'range', 'bounds': [param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], 'value_type': 'float', 'log_scale': True})
+                        ax_params.append(RangeParameterConfig(name=param.name, bounds=[param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], parameter_type='float', scaling="log"))
                     else:
-                        ax_params.append({'name': param.name, 'type': 'range', 'bounds': [param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], 'value_type': 'float'})
+                        ax_params.append(RangeParameterConfig(name=param.name, bounds=[param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], parameter_type='float', scaling="linear"))
         elif param.value_type == 'int':
             if param.type == 'fixed':
-                ax_params.append({'name': param.name, 'type': 'fixed', 'value': int(param.value), 'value_type': 'int'})
+                fixed_params[param.name] = int(param.value)
             else:
-                ax_params.append({'name': param.name, 'type': 'range', 'bounds': [int(param.bounds[0]/param.stepsize), int(param.bounds[1]/param.stepsize)], 'value_type': 'int'})
+                ax_params.append(RangeParameterConfig(name=param.name, bounds=[int(param.bounds[0]/param.stepsize), int(param.bounds[1]/param.stepsize)], parameter_type='int', scaling="linear"))
         elif param.value_type == 'cat' or param.value_type == 'sub' or param.value_type == 'str': 
             if param.type == 'fixed':
-                ax_params.append({'name': param.name, 'type': 'fixed', 'value': param.value, 'value_type': 'str'})
+                fixed_params[param.name] = param.value
             else:
-                ax_params.append({'name': param.name, 'type': 'choice', 'values': param.values, 'value_type': 'str'})
+                ax_params.append(ChoiceParameterConfig(name=param.name, values=param.values, parameter_type='str', is_ordered=param.is_ordered))
         elif param.value_type == 'bool':
             if param.type == 'fixed':
-                ax_params.append({'name': param.name, 'type': 'fixed', 'value': param.value, 'value_type': 'bool'})
+                fixed_params[param.name] = param.value
             else:
-                ax_params.append({'name': param.name, 'type': 'choice', 'values': [True, False], 'value_type': 'bool'})
+                ax_params.append(ChoiceParameterConfig(name=param.name, values=[True, False], parameter_type='bool'))
         else:
             raise ValueError('Failed to convert parameter name: {} to Ax format'.format(param.name))
-        
-    return ax_params
+
+    return ax_params,fixed_params
 
 def CreateObjectiveFromAgent(agent):
     """Create the objective function from the agent
@@ -89,28 +91,28 @@ def CreateObjectiveFromAgent(agent):
 
     return objectives
 
-def search_spaceAx(search_space):
-    parameters = []
-    for param in search_space:
-        if param['type'] == 'range':
-            if param['value_type'] == 'int':
-                parameters.append(RangeParameter(name=param['name'], parameter_type=ParameterType.INT, lower=param['bounds'][0], upper=param['bounds'][1]))
-            else:
-                parameters.append(RangeParameter(name=param['name'], parameter_type=ParameterType.FLOAT, lower=param['bounds'][0], upper=param['bounds'][1]))
-        elif param['type'] == 'fixed':
-            if param['value_type'] == 'int':
-                parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.INT, value=param.value))
-            elif param['value_type'] == 'str':
-                parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.STRING, value=param.value))
-            elif param['value_type'] == 'bool':
-                parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.BOOL, value=param.value))
-            else:
-                parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.FLOAT, value=param.value))
-        elif param['type'] == 'choice':
-            parameters.append(ChoiceParameter(name=param.name, values=param.values, is_ordered=param.is_ordered, is_sorted=param.is_sorted))
-        else:
-            raise ValueError('The parameter type is not recognized')
-    return SearchSpace(parameters=parameters)
+# def search_spaceAx(search_space):
+#     parameters = []
+#     for param in search_space:
+#         if param['type'] == 'range':
+#             if param['value_type'] == 'int':
+#                 parameters.append(RangeParameter(name=param['name'], parameter_type=ParameterType.INT, lower=param['bounds'][0], upper=param['bounds'][1]))
+#             else:
+#                 parameters.append(RangeParameter(name=param['name'], parameter_type=ParameterType.FLOAT, lower=param['bounds'][0], upper=param['bounds'][1]))
+#         elif param['type'] == 'fixed':
+#             if param['value_type'] == 'int':
+#                 parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.INT, value=param.value))
+#             elif param['value_type'] == 'str':
+#                 parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.STRING, value=param.value))
+#             elif param['value_type'] == 'bool':
+#                 parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.BOOL, value=param.value))
+#             else:
+#                 parameters.append(FixedParameter(name=param.name, parameter_type=ParameterType.FLOAT, value=param.value))
+#         elif param['type'] == 'choice':
+#             parameters.append(ChoiceParameter(name=param.name, values=param.values, is_ordered=param.is_ordered, is_sorted=param.is_sorted))
+#         else:
+#             raise ValueError('The parameter type is not recognized')
+#     return SearchSpace(parameters=parameters)
 
 def get_df_from_ax(params, optimizer):
     """Get the dataframe from the ax client and rescale the parameters to their true scale.
@@ -169,40 +171,41 @@ def get_df_ax_client_metrics(params, ax_client, all_metrics):
     ------
     ValueError
         trying to rescale a parameter that is not int or float
-    """    
-    data = ax_client.experiment.fetch_data().df
+    """
+    data = ax_client.summarize()
     objective_names = all_metrics
-    dumdic = {}
-    # create a dic with the keys of the parameters
-    if isinstance(ax_client.experiment.trials[0], BatchTrial):# check if trial is a BatchTrial
-        for key in ax_client.experiment.trials[0].arms[0].parameters.keys():
-            dumdic[key] = []
+    # dumdic = {}
+    # # create a dic with the keys of the parameters
+    # if isinstance(ax_client.experiment.trials[0], BatchTrial):# check if trial is a BatchTrial
+    #     for key in ax_client.experiment.trials[0].arms[0].parameters.keys():
+    #         dumdic[key] = []
         
-        # fill the dic with the values of the parameters
-        for i in range(len(ax_client.experiment.trials)):
+    #     # fill the dic with the values of the parameters
+    #     for i in range(len(ax_client.experiment.trials)):
 
-            if ax_client.experiment.trials[i].status == TrialStatus.COMPLETED:
-                for arm in ax_client.experiment.trials[i].arms:
-                    if arm.name in data['arm_name'].values: # only add the arm if it is in the data i.e. if it was completed
-                        for key in arm.parameters.keys():
-                            dumdic[key].append(arm.parameters[key])       
-    else:
-        for key in ax_client.experiment.trials[0].arm.parameters.keys():
-            dumdic[key] = []
+    #         if ax_client.experiment.trials[i].status == TrialStatus.COMPLETED:
+    #             for arm in ax_client.experiment.trials[i].arms:
+    #                 if arm.name in data['arm_name'].values: # only add the arm if it is in the data i.e. if it was completed
+    #                     for key in arm.parameters.keys():
+    #                         dumdic[key].append(arm.parameters[key])       
+    # else:
+    #     for key in ax_client.experiment.trials[0].arm.parameters.keys():
+    #         dumdic[key] = []
 
-        # fill the dic with the values of the parameters
-        for i in range(len(ax_client.experiment.trials)):
-            if ax_client.experiment.trials[i].status == TrialStatus.COMPLETED:
-                for key in ax_client.experiment.trials[i].arm.parameters.keys():
-                    dumdic[key].append(ax_client.experiment.trials[i].arm.parameters[key])
+    #     # fill the dic with the values of the parameters
+    #     for i in range(len(ax_client.experiment.trials)):
+    #         if ax_client.experiment.trials[i].status == TrialStatus.COMPLETED:
+    #             for key in ax_client.experiment.trials[i].arm.parameters.keys():
+    #                 dumdic[key].append(ax_client.experiment.trials[i].arm.parameters[key])
 
     
-    for objective_name in objective_names:
-        dumdic[objective_name] = list(data[data['metric_name'] == objective_name]['mean'])
+    # for objective_name in objective_names:
+    #     dumdic[objective_name] = list(data[data['metric_name'] == objective_name]['mean'])
 
-    dumdic['iteration'] = list(data[data['metric_name'] == objective_name]['trial_index'])
+    # dumdic['iteration'] = list(data[data['metric_name'] == objective_name]['trial_index'])
 
-    df = pd.DataFrame(dumdic)
+    # df = pd.DataFrame(dumdic)
+    df = data
 
     # add iteration column with 
     for par in params:

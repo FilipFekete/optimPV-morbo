@@ -10,9 +10,9 @@ import numpy as np
 import torch
 from torch import Tensor
 from ax.core.search_space import SearchSpaceDigest
-from ax.models.torch.botorch_modular.acquisition import Acquisition
-from ax.models.torch.botorch_modular.surrogate import Surrogate
-from ax.models.torch_base import TorchOptConfig
+from ax.generators.torch.botorch_modular.acquisition import Acquisition
+from ax.generators.torch.botorch_modular.surrogate import Surrogate
+from ax.generators.torch_base import TorchOptConfig
 from ax.utils.common.logger import get_logger
 from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.acquisition.multi_objective.logei import (
@@ -49,6 +49,12 @@ class EGBOAcquisition(Acquisition):
         search_space_digest: SearchSpaceDigest,
         torch_opt_config: TorchOptConfig,
         botorch_acqf_class: type[AcquisitionFunction],
+        botorch_acqf_options: dict[str, Any],
+        botorch_acqf_classes_with_options: list[
+            tuple[type[AcquisitionFunction], dict[str, Any]]
+        ]
+        | None = None,
+        n: int | None = None,
         options: dict[str, Any] | None = None,
         pop_size: int = 256,
         EA_algo: str = "UNSGA3",
@@ -70,6 +76,7 @@ class EGBOAcquisition(Acquisition):
             search_space_digest=search_space_digest,
             torch_opt_config=torch_opt_config,
             botorch_acqf_class=qLogNoisyExpectedHypervolumeImprovement,
+            botorch_acqf_options=botorch_acqf_options,
             options=options,
         )
 

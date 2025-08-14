@@ -128,13 +128,13 @@ class FitParam():
         else:
             raise ValueError('type must be range, choice or fixed')      
 
-        if self.value_type == 'float' :
+        if self.value_type == 'float' and self.type != 'fixed':
             if self.value > self.bounds[1] or self.value < self.bounds[0]:
                 raise ValueError('value must be within bounds')
             if self.start_value is not None:
                 if self.start_value > self.bounds[1] or self.start_value < self.bounds[0]:
                     raise ValueError('start_value must be within bounds')
-        elif self.value_type == 'int':
+        elif self.value_type == 'int' and self.type != 'fixed':
             if int(self.value) > self.bounds[1] or self.value < self.bounds[0]:
                 raise ValueError('value must be within bounds')
             if self.start_value is not None:

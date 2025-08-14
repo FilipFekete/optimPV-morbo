@@ -16,7 +16,7 @@ setuptools.setup(
     download_url="https://github.com/openPV-lab/optimPV/v1.03.tar.gz",
     packages=setuptools.find_packages(),
     readme = "README.md",
-    keywords=['Bayesian optimization', 'parameter extraction', 'experimental design', 'high throughput', 'solar cells'],
+    keywords=['Bayesian optimization', 'Evolutionary optimization','parameter extraction', 'experimental design', 'high throughput', 'solar cells'],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Intended Audience :: Science/Research",
@@ -41,7 +41,8 @@ setuptools.setup(
         'torchvision>=0.15',
         'torchaudio>=2.0',
         'emcee>=3.1',
-        'ax-platform==0.5.0',
+        'pymoo>=0.6',
+        'ax-platform==1.1.0',
 
     ],
     extras_require = {

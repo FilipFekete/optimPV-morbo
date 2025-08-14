@@ -125,25 +125,23 @@ class TransferMatrixAgent(BaseAgent):
         if len(self.metric) != len(self.loss) or len(self.metric) != len(self.threshold) or len(self.metric) != len(self.minimize) or len(self.metric) != len(self.exp_format):
             raise ValueError('metric, loss, threshold, minimize and exp_format must have the same length')
         
-        for i in range(len(self.metric)):
-            if self.metric[i] is None:
-                self.metric[i] = ''
-        
+        # for i in range(len(self.metric)):
+        #     if self.metric[i] is None:
+        #         self.metric[i] =         
         # Validate compare_type
         if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
             raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
-                
-        # Process tracking metrics and losses
-        if self.tracking_exp_format is not None:
-            if isinstance(self.tracking_exp_format, str):
-                self.tracking_exp_format = [self.tracking_exp_format]
 
-            if isinstance(self.tracking_metric, str) or self.tracking_metric is None:
+        self.all_agent_metrics = self.get_all_agent_metric_names()       
+
+        # Process tracking metrics and losses
+        if self.tracking_metric is not None:
+            if isinstance(self.tracking_metric, str):
                 self.tracking_metric = [self.tracking_metric]
             
-            # if self.tracking_loss is None or isinstance(self.tracking_loss, str):
-            #     self.tracking_loss = ['linear'] * len(self.tracking_metric)
-            if isinstance(self.tracking_loss, str) or self.tracking_loss is None:
+            if self.tracking_loss is None:
+                self.tracking_loss = ['linear'] * len(self.tracking_metric)
+            elif isinstance(self.tracking_loss, str):
                 self.tracking_loss = [self.tracking_loss] * len(self.tracking_metric)
                 
             # Ensure tracking_metric and tracking_loss have the same length
@@ -163,7 +161,13 @@ class TransferMatrixAgent(BaseAgent):
                     raise ValueError(f'{form} is an invalid tracking_exp_format, must be one of: Jsc, AVT, LUE')
             
             # Process tracking_y
+            # Check if all tracking formats are in main exp_format
+            all_formats_in_main = all(fmt in self.exp_format for fmt in self.tracking_exp_format)
             if self.tracking_y is None:
+                
+                if not all_formats_in_main:
+                    raise ValueError('tracking_y must be provided when tracking_exp_format contains formats not in exp_format')
+                
                 # Construct tracking_y from main y based on matching formats
                 self.tracking_y = []
                 
@@ -172,9 +176,13 @@ class TransferMatrixAgent(BaseAgent):
                     if fmt_indices:
                         # Use the first matching format's data
                         idx = fmt_indices[0]
-                        self.tracking_y.append(self.y[idx])
-            if len(self.tracking_y) == 0:
-                self.tracking_y = [None] * len(self.tracking_exp_format)
+                        if isinstance(self.y, list):
+                            self.tracking_y.append(self.y[idx])
+                        else:
+                            self.tracking_y.append(self.y)
+                    else:
+                        self.tracking_y.append(None)
+            
             # Ensure tracking_y is a list
             if not isinstance(self.tracking_y, list):
                 self.tracking_y = [self.tracking_y]
@@ -186,10 +194,11 @@ class TransferMatrixAgent(BaseAgent):
             # check that tracking_exp_format, tracking_metric and tracking_loss have the same length
             if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
                 raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
-            
-        for i in range(len(self.tracking_metric)):
-            if self.tracking_metric[i] is None:
-                self.tracking_metric[i] = ''
+
+        self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()    
+        # for i in range(len(self.tracking_metric)):
+        #     if self.tracking_metric[i] is None:
+        #         self.tracking_metric[i] = ''
 
         # check that layers, thicknesses and activeLayer and spectrum are not None
         if self.layers is None:
@@ -253,7 +262,6 @@ class TransferMatrixAgent(BaseAgent):
         """        
 
         parameters_rescaled = self.params_rescale(parameters, self.params)
-
         Jsc, AVT, LUE = TMM(parameters_rescaled, self.layers, self.thicknesses, self.lambda_min, self.lambda_max, self.lambda_step, self.x_step, self.activeLayer, self.spectrum, self.mat_dir, self.photopic_file)
 
         return Jsc, AVT, LUE
@@ -279,17 +287,21 @@ class TransferMatrixAgent(BaseAgent):
         # First loop: calculate main metrics for each exp_format
         for i in range(len(self.exp_format)):
             if self.loss[i] is None:
-                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = self.target_metric(res_dict[self.exp_format[i]],self.metric[i])
+                dum_dict[self.all_agent_metrics[i]] = self.target_metric(res_dict[self.exp_format[i]], metric_name=self.metric[i])
             else:
                 result = res_dict[self.exp_format[i]]
                 
                 # Apply data transformation based on compare_type
                 if self.compare_type == 'linear':
-                    metric_value = self.target_metric(res_dict[self.exp_format[i]],self.metric[i])
+                    if isinstance(self.y, list):
+                        metric_value = self.target_metric(self.y[i], result, metric_name=self.metric[i])
+                    else:
+                        metric_value = self.target_metric(self.y, result, metric_name=self.metric[i])
                 else:
+                    y_true = self.y[i] if isinstance(self.y, list) else self.y
                     y_true_transformed, y_pred_transformed = transform_data(
-                        [self.y[i]], 
-                        [result], 
+                        y_true, 
+                        result, 
                         transform_type=self.compare_type
                     )
                     
@@ -301,31 +313,31 @@ class TransferMatrixAgent(BaseAgent):
                     )
     
                 # Calculate the loss function based on the metric value
-                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(metric_value, loss=self.loss[i])
+                dum_dict[self.all_agent_metrics[i]] = loss_function(metric_value, loss=self.loss[i])
         
         # Second loop: calculate all tracking metrics
-        if self.tracking_exp_format is not None:
-            for j in range(len(self.tracking_exp_format)):
+        if self.tracking_metric is not None:
+            for j in range(len(self.all_agent_tracking_metrics)):
                 exp_fmt = self.tracking_exp_format[j]
                 metric_name = self.tracking_metric[j]
                 loss_type = self.tracking_loss[j]
                 result = res_dict[exp_fmt]
+                
                 if loss_type is None:
-                    dum_dict[self.name+'_'+exp_fmt+'_tracking_'+metric_name] = self.target_metric(res_dict[exp_fmt], metric_name)
+                    dum_dict[self.all_agent_tracking_metrics[j]] = self.target_metric(result, metric_name=metric_name)
                 else:
-
                     # Apply data transformation based on compare_type
                     if self.compare_type == 'linear':
                         metric_value = self.target_metric(
-                            [self.tracking_y[j]],
-                            [result],
-                            metric_name
+                            self.tracking_y[j],
+                            result,
+                            metric_name=metric_name
                         )
                     else:
                         # Transform data for each format
                         y_true_transformed, y_pred_transformed = transform_data(
-                            [self.tracking_y[j]], 
-                            [result], 
+                            self.tracking_y[j], 
+                            result, 
                             transform_type=self.compare_type
                         )
                         
@@ -337,7 +349,7 @@ class TransferMatrixAgent(BaseAgent):
                         )
 
                     # Calculate the loss function based on the metric value
-                    dum_dict[self.name+'_'+exp_fmt+'_tracking_'+metric_name] = loss_function(metric_value, loss=loss_type)
+                    dum_dict[self.all_agent_tracking_metrics[j]] = loss_function(metric_value, loss=loss_type)
         
         return dum_dict
 

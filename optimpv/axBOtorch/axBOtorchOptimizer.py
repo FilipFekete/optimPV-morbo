@@ -9,7 +9,7 @@ from botorch.generation import MaxPosteriorSampling
 from botorch.models import SingleTaskGP
 from botorch.optim import optimize_acqf
 from botorch.test_functions import Ackley
-from botorch.utils.transforms import unnormalize
+from botorch.utils.transforms import unnormalize, normalize
 from torch.quasirandom import SobolEngine
 
 import gpytorch
@@ -21,37 +21,72 @@ from botorch.acquisition.objective import ScalarizedPosteriorTransform
 
 import math, copy
 import numpy as np
+import pandas as pd
 from joblib import Parallel, delayed
 from functools import partial
 from optimpv import *
 from optimpv.axBOtorch.axUtils import *
-from optimpv.axBOtorch.axUtils import *
-from optimpv.axBOtorch.axSchedulerUtils import *
+# from optimpv.axBOtorch.axSchedulerUtils import * # removed for now
 import ax, os, shutil
 from ax import *
-from ax.service.ax_client import AxClient
-from ax.modelbridge.generation_strategy import GenerationStep, GenerationStrategy
-from ax import Models
+# from ax.service.ax_client import AxClient
+from ax.generation_strategy.generation_strategy import GenerationStep, GenerationStrategy
+# from ax import Models
+from ax.generation_strategy.center_generation_node import CenterGenerationNode
+from ax.generation_strategy.transition_criterion import MinTrials
+from ax.generation_strategy.generation_strategy import GenerationStrategy
+from ax.generation_strategy.generation_node import GenerationNode
+from ax.generation_strategy.generator_spec import GeneratorSpec
+from ax.adapter.factory import Generators
 from ax.service.ax_client import AxClient, ObjectiveProperties
-from ax.service.scheduler import Scheduler, SchedulerOptions, TrialType
+# from ax.service.scheduler import Scheduler, SchedulerOptions, TrialType
+from ax.service.orchestrator import (
+    # get_fitted_adapter,
+    Orchestrator,
+    OrchestratorOptions,
+
+)
+from botorch.acquisition.logei import qLogNoisyExpectedImprovement 
+from ax.adapter.transforms.standardize_y import StandardizeY
+from ax.adapter.transforms.unit_x import UnitX
+from ax.adapter.transforms.remove_fixed import RemoveFixed
+from ax.adapter.transforms.log import Log
+from ax.generators.torch.botorch_modular.utils import ModelConfig
+from ax.generators.torch.botorch_modular.surrogate import SurrogateSpec
+from gpytorch.kernels import MaternKernel
+from gpytorch.kernels import ScaleKernel
+from botorch.models import SingleTaskGP
+from ax.service.utils.orchestrator_options import OrchestratorOptions, TrialType
+from ax.api.protocols.metric import IMetric
 from collections import defaultdict
 from torch.multiprocessing import Pool, set_start_method
+
+
 # from multiprocessing import Pool, set_start_method
 # try: # needed for multiprocessing when using pytorch
 set_start_method('spawn',force=True)
 # except RuntimeError:
 #     print("spawn method already set")
 #     pass
-
+import logging
 from logging import Logger
-from ax.utils.common.logger import get_logger, _round_floats_for_logging
 
-logger: Logger = get_logger(__name__)
+from ax.utils.common.logger import set_ax_logger_levels
+
+# WARN is the next highest log level after INFO
+set_ax_logger_levels(logging.WARN)
+
+# from ax.utils.common.logger import get_logger, _round_floats_for_logging
+from optimpv.general.logger import get_logger, _round_floats_for_logging
+
+logger: Logger = get_logger('axBOtorchOptimizer')
 ROUND_FLOATS_IN_LOGS_TO_DECIMAL_PLACES: int = 6
 round_floats_for_logging = partial(
     _round_floats_for_logging,
     decimal_places=ROUND_FLOATS_IN_LOGS_TO_DECIMAL_PLACES,
 )
+from ax.api.client import Client
+from ax.api.configs import RangeParameterConfig, ChoiceParameterConfig
 
 from optimpv.general.BaseAgent import BaseAgent
 from optimpv.posterior.posterior import get_df_from_ax
@@ -80,6 +115,10 @@ class axBOtorchOptimizer(BaseAgent):
         dictionary of model kwargs for each model, by default None
     model_gen_kwargs_list : dict, optional
         dictionary of model generation kwargs for each model, by default None
+    existing_data : DataFrame, optional
+        existing data to use for the optimization process, by default None
+    suggest_only : bool, optional
+        if True, the optimization process will only suggest new points without running the agents, by default False
     name : str, optional
         name of the optimization process, by default 'ax_opti'
 
@@ -94,16 +133,19 @@ class axBOtorchOptimizer(BaseAgent):
     ValueError
         raised if the model_gen_kwargs_list and models do not have the same length
     """ 
-    def __init__(self, params = None, agents = None, models = ['SOBOL','BOTORCH_MODULAR'],n_batches = [1,10], batch_size = [10,2], ax_client = None,  max_parallelism = -1,model_kwargs_list = None, model_gen_kwargs_list = None, name = 'ax_opti', **kwargs):
+    def __init__(self, params = None, agents = None, models = ['SOBOL','BOTORCH_MODULAR'],n_batches = [1,10], batch_size = [10,2], ax_client = None,  max_parallelism = -1,model_kwargs_list = None, model_gen_kwargs_list = None, existing_data = None, suggest_only = False, name = 'ax_opti', **kwargs):
                
         self.params = params
         if not isinstance(agents, list):
             agents = [agents]
         self.agents = agents
+        for agent in self.agents: # make sure that the agents have the same params as the optimizer
+            agent.params = self.params
         self.models = models
         self.n_batches = n_batches
         self.batch_size = batch_size
         self.all_metrics = None
+        self.all_metrics,self.all_minimize = self.create_metrics_list()
         self.all_tracking_metrics = None
         self.ax_client = ax_client
         self.max_parallelism = max_parallelism
@@ -125,6 +167,8 @@ class axBOtorchOptimizer(BaseAgent):
         self.model_gen_kwargs_list = model_gen_kwargs_list
         self.name = name
         self.kwargs = kwargs
+        self.existing_data = existing_data
+        self.suggest_only = suggest_only
         
         if len(n_batches) != len(models):
             raise ValueError('n_batches and models must have the same length')
@@ -148,66 +192,75 @@ class axBOtorchOptimizer(BaseAgent):
             If the model is not a string or a Models enum
         """        
 
-        steps = []
+        nodes_list = []
+        # get all names
+        names = []
+        Gen_strat_name = ""
+        generators = []
         for i, model in enumerate(self.models):
+            if type(model) == str and model.lower() == 'center':
+                node_name = 'Center'
+                Gen_strat_name += 'Center+'
+                generators.append(node_name)
+                names.append(node_name)
+                continue
+                
             if type(model) == str:
-                model = Models[model]
-            elif isinstance(model, Models):
+                node_name = model
+                model = Generators[model]
+                generators.append(model)
+
+            elif isinstance(model, Generators):
                 model = model
+                node_name = model.__name__
+                generators.append(model)
             else:
                 raise ValueError('Model must be a string or a Models enum')
+            Gen_strat_name += node_name + '+'
+            names.append(node_name)
 
-            steps.append(GenerationStep(
-                model=model,
-                num_trials=self.n_batches[i]*self.batch_size[i],
-                max_parallelism=min(self.max_parallelism,self.batch_size[i]),
-                model_kwargs= self.model_kwargs_list[i],
-                model_gen_kwargs= self.model_gen_kwargs_list[i],
-            ))
+        # remove the last +
+        Gen_strat_name = Gen_strat_name[:-1]
+        # Create the generator spec
+        for i, model in enumerate(generators):
+            # Get the next node name
+            if names[i].lower() == 'center':
+                # Center node is a customized node that uses a simplified logic and has a
+                # built-in transition criteria that transitions after generating once.
+                nodes_list.append(CenterGenerationNode(next_node_name=names[i+1]))
+                continue
 
-        gs = GenerationStrategy(steps=steps, )
-
-        return gs
-
-    def create_generation_strategy_batch(self):
-        """ Create a generation strategy for the optimization process using the models and the number of batches and batch sizes. See ax documentation for more details: https://ax.dev/tutorials/generation_strategy.html
-
-        Returns
-        -------
-        GenerationStrategy
-            The generation strategy for the optimization process
-
-        Raises
-        ------
-        ValueError
-            If the model is not a string or a Models enum
-        """        
-
-        steps = []
-        for i, model in enumerate(self.models):
-            if type(model) == str:
-                model = Models[model]
-            elif isinstance(model, Models):
-                model = model
+            # Create the generator spec
+            generator_spec = GeneratorSpec(
+                                            generator_enum=model,
+                                            model_kwargs=self.model_kwargs_list[i],
+                                            # We can specify various options for the optimizer here.
+                                            model_gen_kwargs = self.model_gen_kwargs_list[i], 
+            )
+            # Create the generation node
+            if i < len(self.models)-1:
+                node = GenerationNode(
+                    node_name=names[i],
+                    generator_specs=[generator_spec],
+                    transition_criteria=[
+                        MinTrials(threshold=self.n_batches[i]*self.batch_size[i],
+                                  transition_to=names[i+1],
+                        )
+                    ],
+                )
             else:
-                raise ValueError('Model must be a string or a Models enum')
-            # check if "n" in model_gen_kwargs_list[i]:
-            if 'n' in self.model_gen_kwargs_list[i]:
-                self.model_gen_kwargs_list[i]['n'] = self.batch_size[i]
-            if 'n' in self.model_kwargs_list[i]:
-                self.model_kwargs_list[i]['n'] = self.batch_size[i]
-            steps.append(GenerationStep(
-                model=model,
-                num_trials=self.n_batches[i],#*self.batch_size[i],
-                max_parallelism=min(self.max_parallelism,self.batch_size[i]),
-                model_kwargs= self.model_kwargs_list[i],
-                model_gen_kwargs= self.model_gen_kwargs_list[i],
-            ))
+                node = GenerationNode(
+                    node_name=names[i],
+                    generator_specs=[generator_spec],
+                )
 
-        gs = GenerationStrategy(steps=steps, )
+            nodes_list.append(node)
+        # Create the generation strategy
+        return GenerationStrategy(
+            name=Gen_strat_name,
+            nodes=nodes_list
+        )
 
-        return gs
-    
     def get_tracking_metrics(self, agents):
         """ Extract tracking metrics from agents
         
@@ -223,19 +276,13 @@ class axBOtorchOptimizer(BaseAgent):
         """
         tracking_metrics = []
         for agent in agents:
-            if hasattr(agent, 'tracking_metric') and agent.tracking_metric is not None:
-                # Check if agent has tracking_exp_format attribute (like RateEqAgent)
-                if hasattr(agent, 'tracking_exp_format') and agent.tracking_exp_format is not None:
-                    # Use experiment format in the metric name
-                    for i in range(len(agent.tracking_metric)):
-                        exp_fmt = agent.tracking_exp_format[i] if i < len(agent.tracking_exp_format) else "unknown"
-                        tracking_metric_name = agent.name+'_'+exp_fmt+'_tracking_'+agent.tracking_metric[i]
-                        if tracking_metric_name not in tracking_metrics:
-                            tracking_metrics.append(tracking_metric_name)
-                else:
-                    raise ValueError(f"Agent {agent.name} does not have tracking_exp_format attribute.")
+            if hasattr(agent, 'all_agent_tracking_metrics') :
+                if agent.all_agent_tracking_metrics is not None:
+                    for metric in agent.all_agent_tracking_metrics:
+                        tracking_metrics.append(metric)
+
         return tracking_metrics
-    
+
     def create_objectives(self):
         """ Create the objectives for the optimization process. The objectives are the metrics of the agents. The objectives are created using the metric, minimize and threshold attributes of the agents. If the agent has an exp_format attribute, it is used to create the objectives.
 
@@ -249,22 +296,91 @@ class axBOtorchOptimizer(BaseAgent):
         if self.all_metrics is None:
             self.all_metrics = []
             append_metrics = True
-            
-        objectives = {}
+        
+        objectives = ""
+
+        # objectives = {}
         for agent in self.agents:
-            for i in range(len(agent.metric)):
-                # if exp_format is an attribute of the agent, use it
-                if hasattr(agent,'exp_format'):
-                    objectives[agent.name+'_'+agent.exp_format[i]+'_'+agent.metric[i]] = ObjectiveProperties(minimize=agent.minimize[i], threshold=agent.threshold[i])
+            for i in range(len(agent.all_agent_metrics)):
+                if agent.minimize[i]:
+                    objectives += "-"+agent.all_agent_metrics[i] + ","
                     if append_metrics:
-                        self.all_metrics.append(agent.name+'_'+agent.exp_format[i]+'_'+agent.metric[i])
+                        self.all_metrics.append(agent.all_agent_metrics[i])
                 else:
-                    objectives[agent.name+'_'+agent.metric[i]] = ObjectiveProperties(minimize=agent.minimize[i], threshold=agent.threshold[i])
+                    objectives += agent.all_agent_metrics[i] + ","
                     if append_metrics:
-                        self.all_metrics.append(agent.name+'_'+agent.metric[i])
+                        self.all_metrics.append(agent.all_agent_metrics[i])
+
+        # remove the last comma
+        objectives = objectives[:-1]
 
         return objectives
     
+    def attach_existing_data(self):
+        """ Attach existing data to the Ax client
+        """
+
+        if self.existing_data is not None:
+            # Convert the existing data to a DataFrame if it is not already
+            if not isinstance(self.existing_data, pd.DataFrame):
+                raise ValueError("existing_data must be a pandas DataFrame")
+
+        # rescale the existing data to match what is expected by the Ax client
+        copy_data = self.descale_dataframe(copy.deepcopy(self.existing_data), self.params)
+        
+        for index, row in copy_data.iterrows():
+            # Create a parameterization dictionary
+            # parameterization = {p.name: copy_data[p.name].iloc[index] for p in self.params if p.type != 'fixed'}
+            parameterization = {}
+            for p in self.params:
+                if p.type != 'fixed':
+                    if p.value_type == 'float':
+                        parameterization[p.name] = copy_data[p.name].iloc[index]
+                    elif p.value_type == 'int':
+                        parameterization[p.name] = int(copy_data[p.name].iloc[index])
+                    elif p.value_type == 'str':
+                        parameterization[p.name] = str(copy_data[p.name].iloc[index])
+                    elif p.value_type == 'cat' or p.value_type == 'sub':
+                        parameterization[p.name] = str(copy_data[p.name].iloc[index])
+
+            # If the parameterization is empty, skip this row
+            if not parameterization:
+                continue
+
+            # Create a raw data dictionary and keep the correct types
+            raw_data = {metric: copy_data[metric].iloc[index] for metric in self.all_metrics + self.all_tracking_metrics if metric in row}
+
+            # If the raw data is empty, skip this row
+            if not raw_data:
+                continue
+
+            trial_index = self.ax_client.attach_trial(
+                parameters=parameterization,
+            )
+            # Then complete the trial with the existing data
+            self.ax_client.complete_trial(
+                trial_index=trial_index, raw_data=raw_data,
+            )
+            if self.kwargs.get('verbose_logging', False):
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info(f"Attached trial {trial_index} with parameters {parameterization} and raw data {raw_data}")
+
+    def get_initial_data_from_existing_data_turbo(self):
+
+        if self.existing_data is not None:
+            if not isinstance(self.existing_data, pd.DataFrame):
+                raise ValueError("existing_data must be a pandas DataFrame")
+
+        # rescale the existing data to match what is expected
+        copy_data = self.descale_dataframe(copy.deepcopy(self.existing_data), self.params)
+        X_turbo, Y_turbo, Y_tracking = [], [], []
+        X_turbo = copy_data[[p.name for p in self.params if p.type != 'fixed']].values
+        Y_turbo = copy_data[self.all_metrics].values
+        Y_tracking = copy_data[self.all_tracking_metrics].values if len(self.all_tracking_metrics) > 0 else None
+
+        return X_turbo, Y_turbo, Y_tracking
+
     def evaluate(self,args):
         """ Evaluate the agent on a parameter point
 
@@ -282,13 +398,8 @@ class axBOtorchOptimizer(BaseAgent):
         res = agent.run_Ax(p)
         return p_idx, res
     
-    def optimize(self,batch=False):
-        """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel_agents attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class. The optimization process runs using the create_generation_strategy and create_objectives methods of the class. The optimization process runs using the run_Ax method of the agents.
-
-        Parameters
-        ----------
-        batch : bool, optional
-            If True, run the optimization process in batch mode. The default is False.
+    def optimize(self):
+        """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class.
 
         Raises
         ------
@@ -296,13 +407,12 @@ class axBOtorchOptimizer(BaseAgent):
             If the number of batches and the number of models are not the same
 
         """  
-        if batch:
-            self.optimize_batch()
-        else:
-            self.optimize_sequential()
+
+        self.optimize_sequential()
+        #Note: I might reimplement the runner option in a future version, but for now it is not used.
 
     def optimize_sequential(self):
-        """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel_agents attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class. The optimization process runs using the create_generation_strategy and create_objectives methods of the class. The optimization process runs using the run_Ax method of the agents.
+        """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class.
 
         Raises
         ------
@@ -318,36 +428,62 @@ class axBOtorchOptimizer(BaseAgent):
         global_stopping_strategy = self.kwargs.get('global_stopping_strategy',None)
         outcome_constraints = self.kwargs.get('outcome_constraints',None)
         parameter_constraints = self.kwargs.get('parameter_constraints',None)
-        parallel_agents = self.kwargs.get('parallel_agents',True)
+        parallel = self.kwargs.get('parallel',True)
+        torch_dtype = self.kwargs.get('torch_dtype',torch.float64)
+        torch.set_default_dtype(torch_dtype)
+
+        # if len(self.agents) == 1: # If there is only one agent, disable parallelism
+        #     parallel_agents = False
 
         # create parameters space from params
-        parameters_space = ConvertParamsAx(self.params)
+        parameters_space, fixed_parameters = ConvertParamsAx(self.params)
 
         # Get tracking metrics directly
         self.all_tracking_metrics = self.get_tracking_metrics(self.agents)
 
-        # create generation strategy
+        # # create generation strategy
         gs = self.create_generation_strategy()
 
         # create ax client
         if self.ax_client is None:
-            self.ax_client = AxClient(generation_strategy=gs, enforce_sequential_optimization=enforce_sequential_optimization, verbose_logging=verbose_logging,global_stopping_strategy=global_stopping_strategy)
-        
-        # create experiment
-        self.ax_client.create_experiment(
+            self.ax_client = Client()
+
+        # Configure the experiment
+        self.ax_client.configure_experiment(
             name=self.name,
             parameters=parameters_space,
-            objectives=self.create_objectives(),
-            outcome_constraints=outcome_constraints,
             parameter_constraints=parameter_constraints,
-            tracking_metric_names=self.all_tracking_metrics,
-        )
+            )
+        
+        objective = self.create_objectives()
+        
+        self.ax_client.configure_optimization(objective=objective)
 
+        if len(self.all_tracking_metrics) != 0:
+            self.ax_client.configure_metrics([IMetric(name=m) for m in self.all_tracking_metrics])
+
+        if self.existing_data is not None:
+            self.attach_existing_data()
+        
+        self.ax_client.set_generation_strategy(generation_strategy=gs)
+        
         # run optimization
         num = 0
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         n_step_points = np.cumsum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         size_pool = None
+        
+        if self.suggest_only and self.existing_data is not None:
+            # If suggest_only is True, we only suggest the trials without running the agents
+            trials = self.ax_client.get_next_trials(total_trials)
+            
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info(f"Suggesting {total_trials} trials without running the agents.")
+
+            return
+
         while num < total_trials:
             # check the current batch size
             curr_batch_size = self.batch_size[np.argmax(n_step_points>num)]
@@ -355,194 +491,121 @@ class axBOtorchOptimizer(BaseAgent):
             if num > total_trials:
                 curr_batch_size = curr_batch_size - (num-total_trials)
 
-            parameters, trial_index = self.ax_client.get_next_trials(curr_batch_size)
+            # parameters, trial_index = self.ax_client.get_next_trials(curr_batch_size)
+            trials = self.ax_client.get_next_trials(curr_batch_size)
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                for i in trials.keys():
+                    logger.info(f"Trial {i} with parameters: {trials[i]}")
+
             
-            if not parallel_agents:
-                results = []
-                for idx, agent in enumerate(self.agents):
-                    dum_res = Parallel(n_jobs=min(curr_batch_size*len(self.agents),self.max_parallelism))(delayed(agent.run_Ax)(p) for p in parameters.values())
-                    results.append(dum_res)
-                
-                main_results = []
-                # merge the n agents results
-                for i in range(len(results[0])):
-                    main_results.append({})
-                    for j in range(len(results)):
-                        main_results[-1].update(results[j][i])
+            trials_index = list(trials.keys())
+            parameters = [] * len(trials)
+            for i in trials_index:
+                parameters.append(trials[i])
+
+            if parallel:
+                all_results = Parallel(
+                    n_jobs=min(len(parameters) * len(self.agents), self.max_parallelism)
+                )(
+                    delayed(lambda ag, p, pi: (pi, ag.run_Ax(p)))(
+                        agent, p, pi
+                    )
+                    for agent in self.agents
+                    for pi, p in enumerate(parameters)
+                )
+
+                # merge results
+                main_results = [{} for _ in parameters]
+                for param_idx, res in all_results:
+                    main_results[param_idx].update(res)
             else:
-                agent_param_list =[]
-                for p_idx, p in enumerate(parameters.values()):
-                    for idx, agent in enumerate(self.agents):
-                        agent_param_list.append((idx, agent, p_idx, p))
+                main_results = [{} for _ in parameters]
+                for agent in self.agents:
+                    for pi, p in enumerate(parameters):
+                        res = agent.run_Ax(p)
+                        main_results[pi].update(res)
 
-                # Run all combinations in parallel using multiprocessing
-                if size_pool is None:
-                    size_pool = min(len(agent_param_list),self.max_parallelism)
-                if size_pool != min(len(agent_param_list),self.max_parallelism):
-                    # close the old pool
-                    size_pool = min(len(agent_param_list),self.max_parallelism)
-                    pool.close()
-                    pool.join()
-                    
-                # Run all combinations in parallel using multiprocessing
-                with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
-                    parallel_results = pool.map(self.evaluate, agent_param_list)
-
-                # Collect and merge results
-                results_dict = defaultdict(dict)
-                for p_idx, res in parallel_results:
-                    results_dict[p_idx].update(res)
-
-                # Convert to main_results list
-                main_results = [results_dict[i] for i in sorted(results_dict)]
-
-            for trial_index, raw_data in zip(parameters.keys(), main_results):
+            idx = 0
+            for trial_index_, raw_data in zip(trials_index, main_results):
                 got_nan = False
                 for key in raw_data.keys():
                     if np.isnan(raw_data[key]):
                         got_nan = True
                         break
                 if not got_nan:
-                    self.ax_client.complete_trial(trial_index, raw_data=raw_data)
+                    if verbose_logging:
+                        logging_level = 20
+                        logger.setLevel(logging_level)
+                        logger.info(f"Trial {trial_index_} completed with results: {raw_data} and parameters: {parameters[idx]}")
+                    self.ax_client.complete_trial(trial_index_, raw_data=raw_data)
                 else:
-                    self.ax_client.log_trial_failure(trial_index)
+                    if verbose_logging:
+                        logging_level = 20
+                        logger.setLevel(logging_level)
+                        logger.info(f"Trial {trial_index_} failed with results: {raw_data} and parameters: {parameters[idx]}")
+                    self.ax_client.mark_trial_failed(trial_index_)
+                idx += 1
 
 
-    def optimize_batch(self):
-        """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel_agents attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class. The optimization process runs using the create_generation_strategy and create_objectives methods of the class. The optimization process runs using the run_Ax method of the agents.
-
+    def update_params_with_best_balance(self,return_best_balance=False):
+        """ Update the parameters with the best balance of all metrics. 
+        The best balance is defined by ranking the results for each metric and taking the parameters that has the lowest sum of ranks.
+        
         Raises
         ------
         ValueError
-            If the number of batches and the number of models are not the same
+            We need at least one metric to update the parameters
+        """        
 
-        """
+        # if we have one objective
+        if len(self.all_metrics) == 1:
+            scaled_best_parameters = self.ax_client.get_best_parameterization(use_model_predictions=False)[0]
+            self.params_w(scaled_best_parameters,self.params)
+        # if we have multiple objectives
+        elif len(self.all_metrics) > 1:
+            # We do this because the ax_client.get_pareto_optimal_parameters does not necessarily return the best parameters for a balanced results on all objectives
+            df = get_df_ax_client_metrics(self.params, self.ax_client, self.all_metrics)
+            metrics = self.all_metrics
+            minimizes_ = []
 
-        # from kwargs
-        enforce_sequential_optimization = self.kwargs.get('enforce_sequential_optimization',False)
-        global_max_parallelism = self.kwargs.get('global_max_parallelism',-1)
-        verbose_logging = self.kwargs.get('verbose_logging',True)
-        scheduler_logging_level = self.kwargs.get('scheduler_logging_level',0)
-        global_stopping_strategy = self.kwargs.get('global_stopping_strategy',None)
-        outcome_constraints = self.kwargs.get('outcome_constraints',None)
-        parameter_constraints = self.kwargs.get('parameter_constraints',None)
-        parallel_agents = self.kwargs.get('parallel_agents',True)
-        max_number_cores = self.kwargs.get('max_number_cores',-1)
-        init_seconds_between_polls = self.kwargs.get('init_seconds_between_polls',0.1)
-        logging_level = self.kwargs.get('logging_level',20)
-        keep_tmp_dir = self.kwargs.get('keep_tmp_dir',False)
+            for agent in self.agents:
+                for i in range(len(agent.minimize)):
+                    minimizes_.append(agent.minimize[i])
 
-        if max_number_cores == -1:
-            max_number_cores = os.cpu_count()-1
-        tmp_dir = self.kwargs.get('tmp_dir',None)
-        tmp_dir = os.path.join(os.getcwd(),'.tmp_dir') if tmp_dir is None else tmp_dir
-
-        # create parameters space from params
-        parameters_space = ConvertParamsAx(self.params)
-
-        # Get tracking metrics directly
-        self.all_tracking_metrics = self.get_tracking_metrics(self.agents)
-
-        # create generation strategy
-        gs = self.create_generation_strategy_batch()
-
-        # create ax client
-        if self.ax_client is None:
-            self.ax_client = AxClient(generation_strategy=gs, enforce_sequential_optimization=enforce_sequential_optimization, verbose_logging=verbose_logging,global_stopping_strategy=global_stopping_strategy)
-        
-        _obj = self.create_objectives()
-
-        is_multi_obj = False
-        if len(_obj.keys()) > 1:
-            is_multi_obj = True
-
-        q = Pool(max_number_cores)
-        if not is_multi_obj:
-            # obj = Objective(metric=MockJobMetric(name=list(_obj.keys())[0]+'_', agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents), minimize=True)
-            obj = Objective(metric=MockJobMetric(name=list(_obj.keys())[0], agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents), minimize=_obj[list(_obj.keys())[0]].minimize)
-        else:
-            objectives_list = []
-            objectives_thresholds = []
-
-            for key in _obj.keys():
-                lower_is_better = _obj[key].minimize
-                metric = MockJobMetric(name=key, agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents,lower_is_better=lower_is_better)
-                objectives_list.append(Objective(metric=metric, minimize=lower_is_better))
-                objectives_thresholds.append(ObjectiveThreshold(metric=metric, bound=_obj[key].threshold,relative=False))
-            obj = MultiObjective(objectives=objectives_list, objective_thresholds=objectives_thresholds)
-            # raise ValueError('The objective must be a single metric')
-
-        # create experiment
-        self.ax_client.create_experiment(
-            name=self.name,
-            parameters=parameters_space,
-            # objectives=self.create_objectives(),
-            outcome_constraints=outcome_constraints,
-            parameter_constraints=parameter_constraints,
-            tracking_metric_names=self.all_tracking_metrics,
-        )
-        # threshold=
-        if not is_multi_obj:
-            self.ax_client.experiment.optimization_config=OptimizationConfig(objective=obj)
-        else:
-            self.ax_client.experiment.optimization_config=MultiObjectiveOptimizationConfig(objective=obj)
-            # self.ax_client.experiment.optimization_config.objective_thresholds = objectives_thresholds
-        
-        # create runner
-        runner = MockJobRunner(agents = self.agents, pool = q, tmp_dir = tmp_dir, parallel_agents = parallel_agents)
-        self.ax_client.experiment.runner = runner
-        # run optimization
-        num = 0
-        total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
-        n_step_points = np.cumsum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
-
-        if verbose_logging:
-            logger.info('Starting optimization with %d batches and a total of %d trials',sum(np.asarray(self.n_batches)),total_trials)
-
-        count = 1
-        while num < total_trials:
-            if verbose_logging and num != 0:
-                logging_level = 20
-                logger.setLevel(logging_level)
-                logger.info(f'Starting batch {round_floats_for_logging(count)} with {round_floats_for_logging(self.batch_size[np.argmax(n_step_points>num)])} trials')
-            # check the current batch size
-            if num == 0:
-                old_batch_size = self.batch_size[np.argmax(n_step_points>num)]
-            else:
-                old_batch_size = curr_batch_size
-
-            curr_batch_size = self.batch_size[np.argmax(n_step_points>num)]
-
-            if old_batch_size != curr_batch_size or num == 0: # if the batch size changes, create a new scheduler
-                # Create a new scheduler for each batch with the current batch size
-                scheduler = Scheduler(
-                    experiment=self.ax_client.experiment,
-                    generation_strategy=self.ax_client.generation_strategy,
-                    options=SchedulerOptions(run_trials_in_batches=True,init_seconds_between_polls=init_seconds_between_polls,trial_type=TrialType.BATCH_TRIAL,batch_size=curr_batch_size,logging_level=scheduler_logging_level,global_stopping_strategy=global_stopping_strategy),
-                )
-
-            num += curr_batch_size
-            if num > total_trials:
-                curr_batch_size = curr_batch_size - (num-total_trials)
+            # Filter out rows with NaN values in any metric
+            df_filtered = df.dropna(subset=metrics)
             
-            scheduler.run_n_trials(max_trials=1)
-            if verbose_logging:
-                logging_level = 20
-                logger.setLevel(logging_level)
-                logger.info('Finished batch %d', count)
-            count += 1
-              
-        q.close()
-        q.join()
-        if verbose_logging:
-            logging_level = 20
-            logger.setLevel(logging_level)
-            logger.info('Finished optimization')
+            if len(df_filtered) == 0:
+                raise ValueError('All rows contain NaN values in at least one metric')
 
-        # clean up the tmp_dir
-        if not keep_tmp_dir:
-            if os.path.exists(tmp_dir):
-                shutil.rmtree(tmp_dir)
+            ranked_df = copy.deepcopy(df_filtered)
+            ranks = []
+            for i in range(len(metrics)):
+                ranked_df[metrics[i]+'_rank'] = ranked_df[metrics[i]].rank(ascending=minimizes_[i])
+                ranks.append(ranked_df[metrics[i]+'_rank'])
+            # get the index of the best balance
+            best_balance_index = np.argmin(np.sum(np.array(ranks), axis=0))
+
+            # get the best parameters
+            scaled_best_parameters = ranked_df.iloc[best_balance_index].to_dict()
+            
+            dum_dic = {}
+            for p in self.params:
+                if p.type != 'fixed':
+                    dum_dic[p.name] = scaled_best_parameters[p.name]
+                else:
+                    dum_dic[p.name] = p.value
+            scaled_best_parameters = dum_dic
+
+            for p in self.params:
+                if p.name in scaled_best_parameters.keys():
+                    p.value = scaled_best_parameters[p.name]
+            if return_best_balance:
+                return best_balance_index, scaled_best_parameters
+        else:
+            raise ValueError('We need at least one metric to update the parameters')
 
     def optimize_turbo(self,acq_turbo='ts',force_continue = False, kwargs_turbo_state={},kwargs_turbo={}):
         """Run the optimzation using Turbo. This is based on the Botorch implementation of Turbo. See https://botorch.org/docs/tutorials/turbo_1/ for more details.
@@ -579,29 +642,26 @@ class axBOtorchOptimizer(BaseAgent):
             Turbo only supports BoTorch as the second model
         """            
 
-        parameters_space = ConvertParamsAx(self.params)
-        objectives=self.create_objectives()
+        parameters_space, fixed_parameters = ConvertParamsAx(self.params)
+        objective = self.create_objectives()
 
         # Get tracking metrics directly
         self.all_tracking_metrics = self.get_tracking_metrics(self.agents)
 
         # make sure that we do not take fixed params into account
-        free_pnames = [p['name'] for p in parameters_space if p['type'] != 'fixed']
+        free_pnames = [p.name for p in parameters_space]
+        
         dim = len(free_pnames)
 
-        parallel_agents = self.kwargs.get('parallel_agents',True)
+        parallel = self.kwargs.get('parallel',True)
         verbose_logging = self.kwargs.get('verbose_logging',True)
         enforce_sequential_optimization = self.kwargs.get('enforce_sequential_optimization',False)
         global_stopping_strategy = self.kwargs.get('global_stopping_strategy',None)
         outcome_constraints = self.kwargs.get('outcome_constraints',None)
         parameter_constraints = self.kwargs.get('parameter_constraints',None)
-        # acq_turbo = self.kwargs.get('acq_turbo','ts')
-        # kwargs_turbo_state = self.kwargs.get('kwargs_turbo_state',{})
         NUM_RESTARTS = kwargs_turbo.get('NUM_RESTARTS', 10)
         RAW_SAMPLES = kwargs_turbo.get('RAW_SAMPLES', 512)
         N_CANDIDATES = kwargs_turbo.get('N_CANDIDATES', min(5000, max(2000, 200 * dim)))
-
-        
 
         if parameter_constraints is not None:
             raise ValueError('Turbo does not support parameter constraints')
@@ -609,21 +669,28 @@ class axBOtorchOptimizer(BaseAgent):
             raise ValueError('Turbo does not support outcome constraints')  
         
         # check if we have a single objective
-        if len(objectives) > 1:
+        if "," in objective:  # Multiple objectives in string format
             raise ValueError('Turbo only supports single objective optimization')
-        # check if we minimize
-        minimize = list(objectives.values())[0].minimize
+        
+        # check if we minimize (objective string starts with -)
+        minimize = objective.startswith('-')
         if minimize:
             fac = -1
         else:
             fac = 1
 
-        if len(self.models)>2:
-            raise ValueError('Turbo only supports 2 models')
-        if self.models[0] != 'SOBOL':
-            raise ValueError('Turbo only supports Sobol as the first model')
-        if self.models[1] != 'BOTORCH_MODULAR':
-            raise ValueError('Turbo only supports BoTorch as the second model')
+        if self.suggest_only:
+            if len(self.models)>1:
+                raise ValueError('Turbo only supports 1 model in suggest_only mode')
+            if self.models[0] != 'BOTORCH_MODULAR':
+                raise ValueError('Turbo only supports BoTorch as the model in suggest_only mode')
+        else:
+            if len(self.models)>2:
+                raise ValueError('Turbo only supports 2 models')
+            if self.models[0] != 'SOBOL':
+                raise ValueError('Turbo only supports Sobol as the first model')
+            if self.models[1] != 'BOTORCH_MODULAR':
+                raise ValueError('Turbo only supports BoTorch as the second model')
         
         # Set the device and dtype
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -634,230 +701,98 @@ class axBOtorchOptimizer(BaseAgent):
         if verbose_logging:
             logger.info('Starting optimization with %d batches and a total of %d trials',sum(np.asarray(self.n_batches)),total_trials)
 
-        # Start with a Sobol sequence
-        n_total_sobol = self.n_batches[0]*self.batch_size[0]
-        num_sobol = 0
-        bounds = torch.tensor([p['bounds'] for p in parameters_space if p['type'] != 'fixed'], device=device, dtype=dtype)
-
-        # transpose bounds
-        bounds = bounds.transpose(0,1)
-        # Create and run initial points per batch
-        count_batch = 1
-        
-        while num_sobol < n_total_sobol:
+        # Create the bounds for the parameters
+        bounds = torch.tensor([p.bounds for p in parameters_space], device=device, dtype=dtype)
+        bounds = bounds.transpose(0,1) # transpose bounds
+        count_failure = 0
+        if self.existing_data is not None:
+            # If we have existing data, we need to use it to initialize the optimization
             if verbose_logging:
                 logging_level = 20
                 logger.setLevel(logging_level)
-                logger.info('Starting Sobol batch %d with %d trials', count_batch, self.batch_size[0])
+                logger.info('Using existing data for initialization')
+            X_turbo, Y_turbo, Y_tracking = self.get_initial_data_from_existing_data_turbo()
+            # convert to torch tensors
+            X_turbo_un = torch.tensor(X_turbo, device=device, dtype=dtype)
+            X_turbo = torch.tensor(X_turbo, device=device, dtype=dtype)
+            #normalize the X_turbo
+            X_turbo = normalize(X_turbo, bounds=bounds)
+            Y_turbo = torch.tensor(Y_turbo, device=device, dtype=dtype)
+            Y_tracking = torch.tensor(Y_tracking, device=device, dtype=dtype)
             
-            # Get initial points
-            X_turbo = get_initial_points(
-                dim=dim,
-                n_pts=self.batch_size[0],
-                device=device,
-                dtype=dtype,
-            )
+        else:
+            # Start with a Sobol sequence
+            n_total_sobol = self.n_batches[0]*self.batch_size[0]
+            num_sobol = 0
             
-            # unnormalize
-            X_turbo_un = unnormalize(X_turbo, bounds=bounds)
-            # build list of dicts with noam
-            dics = []
-            for p in X_turbo_un:
-                p = p.cpu().numpy()
-                # write p into a dict with the param names as keys if the param is not fixed
-                p = {self.params[i].name: p[i] for i in range(len(self.params)) if self.params[i].type != 'fixed'}
-                dics.append(p)
-
-            # run agents 
-            if parallel_agents:
-                agent_param_list =[]
-                for p_idx, p in enumerate(dics):
-                    for idx, agent in enumerate(self.agents):
-                        agent_param_list.append((idx, agent, p_idx, p))
-
-                # Run all combinations in parallel using multiprocessing
-                with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
-                    parallel_results = pool.map(self.evaluate, agent_param_list)
-
-                # Collect and merge results
-                results_dict = defaultdict(dict)
-                for p_idx, res in parallel_results:
-                    results_dict[p_idx].update(res)
-
-                # Convert to main_results list
-                main_results = [results_dict[i] for i in sorted(results_dict)]
-            else:
-                results = []
-                for idx, agent in enumerate(self.agents):
-                    dum_res = Parallel(n_jobs=min(len(dics),self.max_parallelism))(delayed(agent.run_Ax)(p) for p in dics)
-                    results.append(dum_res)
-                
-                main_results = []
-                # merge the n agents results
-                for i in range(len(results[0])):
-                    main_results.append({})
-                    for j in range(len(results)):
-                        main_results[-1].update(results[j][i])
-            
-            # Only keep values from result dictionary that are in all_metrics
-            Y_turbo = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
-            # multiplication factor
-            Y_turbo = fac*Y_turbo
-            
-            # Also collect tracking metrics if they exist
-            Y_tracking = None
-            if self.all_tracking_metrics and len(self.all_tracking_metrics) > 0:
-                tracking_data = []
-                for res in main_results:
-                    metrics_vals = []
-                    for metric in self.all_tracking_metrics:
-                        if metric in res:
-                            metrics_vals.append(res[metric])
-                        else:
-                            metrics_vals.append(float('nan'))
-                    tracking_data.append(metrics_vals)
-                if tracking_data:
-                    Y_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
-                    
-            num_sobol += self.batch_size[0]
-            count_batch += 1
-
-        if verbose_logging:
-            logging_level = 20
-            logger.setLevel(logging_level)
-            logger.info('Finished Sobol')
-        
-        # Create a new state for each batch
-        best_value = max(Y_turbo).item()
-        state = TurboState(dim=dim, batch_size=self.batch_size[1], best_value=best_value,**kwargs_turbo_state)
-        max_num_trials = self.n_batches[1]*self.batch_size[1]
-        num_turbo = 0
-        
-        while (not num_turbo > max_num_trials) and not (state.restart_triggered and not force_continue):
-            if verbose_logging:
-                logging_level = 20
-                logger.setLevel(logging_level)
-                if state.restart_triggered and force_continue:
-                    logger.setLevel(logging_level)
-                    logger.info('Restart triggered, but we force the optimization to continue.')
-            try:
-                # Fit a GP model
-                train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
-
-                try:
-                    likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
-                    covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
-                        MaternKernel(
-                            nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
-                        )
-                    )
-                    model = SingleTaskGP(
-                        X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
-                    )
-                    mll = ExactMarginalLogLikelihood(model.likelihood, model)
-                
-                    # Do the fitting and acquisition function optimization inside the Cholesky context
-                    with gpytorch.settings.max_cholesky_size(max_cholesky_size):
-                        # Fit the model
-                        fit_gpytorch_mll(mll)
-
-                        # Create a batch
-                        X_next = generate_batch(
-                            state=state,
-                            model=model,
-                            X=X_turbo,
-                            Y=train_Y,
-                            batch_size=state.batch_size,
-                            n_candidates=N_CANDIDATES,
-                            num_restarts=NUM_RESTARTS,
-                            raw_samples=RAW_SAMPLES,
-                            acqf=acq_turbo,
-                            device=device,
-                            dtype=dtype,
-                            minimize=minimize,
-                        )
-                except Exception as e:
-                    # Fall back to a more robust likelihood with stronger regularization
-                    likelihood = GaussianLikelihood(noise_constraint=Interval(1e-4, 0.1))
-                    covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
-                        MaternKernel(
-                            nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
-                        )
-                    )
-                    model = SingleTaskGP(X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood)
-                    mll = ExactMarginalLogLikelihood(model.likelihood, model)
-                    with gpytorch.settings.max_cholesky_size(max_cholesky_size):
-                        # Fit the model
-                        fit_gpytorch_mll(mll)
-
-                        # Create a batch
-                        X_next = generate_batch(
-                            state=state,
-                            model=model,
-                            X=X_turbo,
-                            Y=train_Y,
-                            batch_size=state.batch_size,
-                            n_candidates=N_CANDIDATES,
-                            num_restarts=NUM_RESTARTS,
-                            raw_samples=RAW_SAMPLES,
-                            acqf=acq_turbo,
-                            device=device,
-                            dtype=dtype,
-                            minimize=minimize,
-                        )
+            # Create and run initial points per batch
+            count_batch = 1
+            while num_sobol < n_total_sobol:
+                if verbose_logging:
                     logging_level = 20
                     logger.setLevel(logging_level)
-                    logger.error(f"Error in Turbo batch {count_batch}: {e}")
-                    logger.error(f"We are stopping the optimization process")
-                    break
-
-                # Evaluate the batch
-                X_next_un = unnormalize(X_next, bounds=bounds)
+                    logger.info('Starting Sobol batch %d with %d trials', count_batch, self.batch_size[0])
+                
+                # Get initial points
+                X_turbo = get_initial_points(
+                    dim=dim,
+                    n_pts=self.batch_size[0],
+                    device=device,
+                    dtype=dtype,
+                )
+                
+                # unnormalize
+                X_turbo_un = unnormalize(X_turbo, bounds=bounds)
                 # build list of dicts with noam
                 dics = []
-                for p in X_next_un:
+                for p in X_turbo_un:
                     p = p.cpu().numpy()
-                    # write p into a dict with the param names as keys
-                    p = {self.params[i].name: p[i] for i in range(len(self.params)) if self.params[i].type != 'fixed'}
-                    dics.append(p)
-                # run agents
-                if parallel_agents:
-                    agent_param_list =[]
-                    for p_idx, p in enumerate(dics):
-                        for idx, agent in enumerate(self.agents):
-                            agent_param_list.append((idx, agent, p_idx, p))
+                    # write p into a dict with the param names as keys if the param is not fixed
+                    idx = 0
+                    dum_dict = {}
+                    for i in range(len(self.params)):
+                        if self.params[i].type != 'fixed':
+                            dum_dict[self.params[i].name] = p[idx]
+                            idx += 1
+                    dics.append(dum_dict)
 
-                    # Run all combinations in parallel using multiprocessing
-                    with Pool(processes=min(len(agent_param_list),self.max_parallelism)) as pool:
-                        parallel_results = pool.map(self.evaluate, agent_param_list)
 
-                    # Collect and merge results
-                    results_dict = defaultdict(dict)
-                    for p_idx, res in parallel_results:
-                        results_dict[p_idx].update(res)
+                if parallel:
+                    all_results = Parallel(
+                        n_jobs=min(len(dics) * len(self.agents), self.max_parallelism)
+                    )(
+                        delayed(lambda ag, p, pi: (pi, ag.run_Ax(p)))(
+                            agent, p, pi
+                        )
+                        for agent in self.agents
+                        for pi, p in enumerate(dics)
+                    )
 
-                    # Convert to main_results list
-                    main_results = [results_dict[i] for i in sorted(results_dict)]
+                    # merge results
+                    main_results = [{} for _ in dics]
+                    for param_idx, res in all_results:
+                        main_results[param_idx].update(res)
                 else:
-                    results = []
-                    for idx, agent in enumerate(self.agents):
-                        dum_res = Parallel(n_jobs=min(len(dics),self.max_parallelism))(delayed(agent.run_Ax)(p) for p in dics)
-                        results.append(dum_res)
-                    
-                    main_results = []
-                    # merge the n agents results
-                    for i in range(len(results[0])):
-                        main_results.append({})
-                        for j in range(len(results)):
-                            main_results[-1].update(results[j][i])
+                    main_results = [{} for _ in dics]
+                    for agent in self.agents:
+                        for pi, p in enumerate(dics):
+                            res = agent.run_Ax(p)
+                            main_results[pi].update(res)
 
                 # Only keep values from result dictionary that are in all_metrics
-                Y_next = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
+                Y_turbo = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
                 # multiplication factor
-                Y_next = fac*Y_next
-                
+                Y_turbo = fac*Y_turbo
+
+                # find idx where we have nan in Y_turbo
+                nan_idx = torch.isnan(Y_turbo).any(dim=1)
+                count_failure += nan_idx.sum().item()
+                # remove nan from Y_turbo and X_turbo
+                Y_turbo = Y_turbo[~nan_idx]
+                X_turbo = X_turbo[~nan_idx]
+
                 # Also collect tracking metrics if they exist
-                Y_next_tracking = None
+                Y_tracking = None
                 if self.all_tracking_metrics and len(self.all_tracking_metrics) > 0:
                     tracking_data = []
                     for res in main_results:
@@ -869,73 +804,272 @@ class axBOtorchOptimizer(BaseAgent):
                                 metrics_vals.append(float('nan'))
                         tracking_data.append(metrics_vals)
                     if tracking_data:
-                        Y_next_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
-                
-                # Update state
-                state = update_state(state=state, Y_next=Y_next)
+                        Y_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
+                    Y_tracking = Y_tracking[~nan_idx]
+                num_sobol += self.batch_size[0]
+                count_batch += 1
 
-                # Append data
-                X_turbo = torch.cat((X_turbo, X_next), dim=0)
-                Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
-                if Y_tracking is not None and Y_next_tracking is not None:
-                    Y_tracking = torch.cat((Y_tracking, Y_next_tracking), dim=0)
-                elif Y_next_tracking is not None:
-                    Y_tracking = Y_next_tracking
-                    
-                num_turbo += state.batch_size
-                
-                # Print current status
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info('Finished Sobol')
+        
+        if not self.suggest_only:
+            # Create a new state for each batch
+            best_value = max(Y_turbo).item()
+            state = TurboState(dim=dim, batch_size=self.batch_size[1], best_value=best_value,**kwargs_turbo_state)
+            max_num_trials = self.n_batches[1]*self.batch_size[1]
+            num_turbo = 0
+            state = update_state(state=state, Y_next=Y_turbo)
+            while (not num_turbo > max_num_trials) and not (state.restart_triggered and not force_continue):
                 if verbose_logging:
                     logging_level = 20
                     logger.setLevel(logging_level)
-                    logger.info(f"Finished Turbo batch {count_batch} with {state.batch_size} trials with current best value: {fac*state.best_value:.2e}, TR length: {state.length:.2e}")
+                    if state.restart_triggered and force_continue:
+                        logger.setLevel(logging_level)
+                        logger.info('Restart triggered, but we force the optimization to continue.')
+                try:
+                    # Fit a GP model
+                    train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
+
+                    try:
+                        
+                        likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
+                        covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
+                            MaternKernel(
+                                nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
+                            )
+                        )
+                        model = SingleTaskGP(
+                            X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
+                        )
+                        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+                        
+                        # Do the fitting and acquisition function optimization inside the Cholesky context
+                        with gpytorch.settings.max_cholesky_size(max_cholesky_size):
+                            # Fit the model
+                            fit_gpytorch_mll(mll)
+
+                            # Create a batch
+                            X_next = generate_batch(
+                                state=state,
+                                model=model,
+                                X=X_turbo,
+                                Y=train_Y,
+                                batch_size=state.batch_size,
+                                n_candidates=N_CANDIDATES,
+                                num_restarts=NUM_RESTARTS,
+                                raw_samples=RAW_SAMPLES,
+                                acqf=acq_turbo,
+                                device=device,
+                                dtype=dtype,
+                                minimize=minimize,
+                            )
+                    except Exception as e:
+
+                        logging_level = 20
+                        logger.setLevel(logging_level)
+                        logger.error(f"Error in Turbo batch {count_batch}: {e}")
+                        logger.error(f"We are stopping the optimization process")
+                        break
+
+                    # Evaluate the batch
+                    X_next_un = unnormalize(X_next, bounds=bounds)
+                    # build list of dicts with noam
+                    dics = []
+                    for p in X_next_un:
+                        p = p.cpu().numpy()
+                        idx = 0
+                        dum_dict = {}
+                        for i in range(len(self.params)):
+                            if self.params[i].type != 'fixed':
+                                dum_dict[self.params[i].name] = p[idx]
+                                idx += 1
+                        dics.append(dum_dict)
+
+                    # run agents
+                    if parallel:
+                        all_results = Parallel(
+                            n_jobs=min(len(dics) * len(self.agents), self.max_parallelism)
+                        )(
+                            delayed(lambda ag, p, pi: (pi, ag.run_Ax(p)))(
+                                agent, p, pi
+                            )
+                            for agent in self.agents
+                            for pi, p in enumerate(dics)
+                        )
+
+                        # merge results
+                        main_results = [{} for _ in dics]
+                        for param_idx, res in all_results:
+                            main_results[param_idx].update(res)
+                    else:
+                        main_results = [{} for _ in dics]
+                        for agent in self.agents:
+                            for pi, p in enumerate(dics):
+                                res = agent.run_Ax(p)
+                                main_results[pi].update(res)
+
+                    # Only keep values from result dictionary that are in all_metrics
+                    Y_next = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
+                    # multiplication factor
+                    Y_next = fac*Y_next
+
+                    # find idx where we have nan in Y_turbo
+                    nan_idx = torch.isnan(Y_next).any(dim=1)
+                    count_failure += nan_idx.sum().item()
+                    # remove nan from Y_next and X_next
+                    Y_next = Y_next[~nan_idx]
+                    X_next = X_next[~nan_idx]
+                    if nan_idx.sum() > state.batch_size:
+                        raise ValueError("Too many NaN values in Y_next")
+                    
+                    # Also collect tracking metrics if they exist
+                    Y_next_tracking = None
+                    if self.all_tracking_metrics and len(self.all_tracking_metrics) > 0:
+                        tracking_data = []
+                        for res in main_results:
+                            metrics_vals = []
+                            for metric in self.all_tracking_metrics:
+                                if metric in res:
+                                    metrics_vals.append(res[metric])
+                                else:
+                                    metrics_vals.append(float('nan'))
+                            tracking_data.append(metrics_vals)
+                        if tracking_data:
+                            Y_next_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
+                        Y_next_tracking = Y_next_tracking[~nan_idx]
+                    # Update state
+                    state = update_state(state=state, Y_next=Y_next)
+
+                    # Append data
+                    X_turbo = torch.cat((X_turbo, X_next), dim=0)
+                    Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
+                    if Y_tracking is not None and Y_next_tracking is not None:
+                        Y_tracking = torch.cat((Y_tracking, Y_next_tracking), dim=0)
+                    elif Y_next_tracking is not None:
+                        Y_tracking = Y_next_tracking
+                        
+                    num_turbo += state.batch_size
+                    
+                    # Print current status
+                    if verbose_logging:
+                        logging_level = 20
+                        logger.setLevel(logging_level)
+                        logger.info(f"Finished Turbo batch {count_batch} with {state.batch_size} trials with current best value: {fac*state.best_value:.2e}, TR length: {state.length:.2e}")
+                    
+                    count_batch += 1
+                except Exception as e:
+                    logging_level = 20
+                    logger.setLevel(logging_level)
+                    logger.error(f"Error in Turbo batch {count_batch}: {e}")
+                    logger.error(f"We are stopping the optimization process")
+                    break
+        else:
+            # If suggest_only is True, we only suggest the trials without running the agents
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info(f"Suggesting {total_trials} trials without running the agents.")
+
+             # Create a new state for each batch
+            # get previous best value from kwargs_turbo
+            if 'best_value' in kwargs_turbo:
+                best_value = kwargs_turbo['best_value']
+            else:
+                raise ValueError('best_value from the previous state must be provided in kwargs_turbo for suggest_only mode')
+            
+            # best_value = max(Y_turbo).item()
+            state = TurboState(dim=dim, batch_size=self.batch_size[0], best_value=best_value,**kwargs_turbo_state)
+            state = update_state(state=state, Y_next=Y_turbo)
+            max_num_trials = self.n_batches[0]*self.batch_size[0] # when suggest_only is True, we only use the first batch size
+            num_turbo = 0
+             # Fit a GP model
+            train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
+
+            try:
                 
-                count_batch += 1
+                likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
+                covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
+                    MaternKernel(
+                        nu=2.5, ard_num_dims=dim, lengthscale_constraint=Interval(0.005, 4.0)
+                    )
+                )
+                model = SingleTaskGP(
+                    X_turbo, train_Y, covar_module=covar_module, likelihood=likelihood
+                )
+                mll = ExactMarginalLogLikelihood(model.likelihood, model)
+                
+                # Do the fitting and acquisition function optimization inside the Cholesky context
+                with gpytorch.settings.max_cholesky_size(max_cholesky_size):
+                    # Fit the model
+                    fit_gpytorch_mll(mll)
+
+                    # Create a batch
+                    X_next = generate_batch(
+                        state=state,
+                        model=model,
+                        X=X_turbo,
+                        Y=train_Y,
+                        batch_size=state.batch_size,
+                        n_candidates=N_CANDIDATES,
+                        num_restarts=NUM_RESTARTS,
+                        raw_samples=RAW_SAMPLES,
+                        acqf=acq_turbo,
+                        device=device,
+                        dtype=dtype,
+                        minimize=minimize,
+                    )
             except Exception as e:
                 logging_level = 20
                 logger.setLevel(logging_level)
                 logger.error(f"Error in Turbo batch {count_batch}: {e}")
-                logger.error(f"We are stopping the optimization process")
-                break
-                
-            
-        # load all data into ax
-        
+                logger.error(f"There was an error in the Turbo optimization process, we are stopping the optimization process")
+                return
+
+            # Evaluate the batch
+            X_next_un = unnormalize(X_next, bounds=bounds)
+
 
         # load all data into ax
-        # create ax client
         # create generation strategy using the second model
-        gs = [GenerationStep(
-            model=Models[self.models[1]],
-            num_trials=1,
-            max_parallelism=min(self.max_parallelism,self.batch_size[1]),
-            model_kwargs= self.model_kwargs_list[1],
-            model_gen_kwargs= self.model_gen_kwargs_list[1],
-        )]
-        gs = GenerationStrategy(steps=gs, )
+        gs = self.create_generation_strategy()
 
         # create ax client
         if self.ax_client is None:
-            self.ax_client = AxClient(generation_strategy=gs, enforce_sequential_optimization=enforce_sequential_optimization, verbose_logging=verbose_logging,global_stopping_strategy=global_stopping_strategy)
+            self.ax_client = Client()
         
-        self.ax_client.create_experiment(
+        # Configure the experiment
+        self.ax_client.configure_experiment(
             name=self.name,
             parameters=parameters_space,
-            objectives=self.create_objectives(),
-            tracking_metric_names=self.all_tracking_metrics,
-        )
+            parameter_constraints=parameter_constraints,
+            )
+        
+        self.ax_client.configure_optimization(objective=objective)
+
+        if len(self.all_tracking_metrics) != 0:
+            self.ax_client.configure_metrics([IMetric(name=m) for m in self.all_tracking_metrics])
+
+        self.ax_client.set_generation_strategy(generation_strategy=gs)
 
         # add all data to ax
         X_turbo_un = unnormalize(X_turbo, bounds=bounds)
         for i in range(len(X_turbo_un)):
             dic = {}
             for j in range(len(X_turbo_un[i])):
-                dic[free_pnames[j]] = X_turbo_un[i][j].item()
+                # check the parameter_type of the parameter_space
+                if parameters_space[j].parameter_type == 'int':
+                    dic[free_pnames[j]] = int(X_turbo_un[i][j].item())
+                else:
+                    dic[free_pnames[j]] = X_turbo_un[i][j].item()
             # add fixed params to dic
-            for p in self.params:
-                if p.type == 'fixed':
-                    dic[p.name] = p.value
-            parameters, trial_index = self.ax_client.attach_trial(parameters=dic)
+            # for p in self.params:
+            #     if p.type == 'fixed':
+            #         dic[p.name] = p.value
+            trial_index = self.ax_client.attach_trial(parameters=dic)
+            # print(trials)
+            # trial_index = tr
             # add all_metrics and tracking_metrics to ax
             raw_data = {}
             for j in range(len(self.all_metrics)):
@@ -946,70 +1080,45 @@ class axBOtorchOptimizer(BaseAgent):
             self.ax_client.complete_trial(trial_index, raw_data=raw_data)
 
         # train the model
-        self.ax_client.get_next_trial(1) # This will train the model
+        # self.ax_client.get_next_trials(1) # This will train the model
+        # dummy_pred = self.ax_client.predict([dic]) # This will train the model
 
-        if verbose_logging:
-            logging_level = 20
-            logger.setLevel(logging_level)
-            if state.restart_triggered:
-                logger.info('Turbo converged after %d batches with %d trials', count_batch-1, (count_batch-1)*state.batch_size)
-            else:
-                logger.info('Turbo is terminated as the max number (%d) of trials is reached', total_trials)
+        if self.suggest_only:
+            for i in range(len(X_next_un)):
+                dic = {}
+                for j in range(len(X_next_un[i])):
+                    if parameters_space[j].parameter_type == 'int':
+                        dic[free_pnames[j]] = int(X_next_un[i][j].item())
+                    else:
+                        dic[free_pnames[j]] = X_next_un[i][j].item()
+                # add fixed params to dic
+                for p in self.params:
+                    if p.type == 'fixed':
+                        dic[p.name] = p.value
+                trial_index = self.ax_client.attach_trial(parameters=dic)
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                logger.info('Suggesting %d trials without running the agents', len(X_next_un))
+            # put the new turbo state into kwargs_turbo
+            kwargs_turbo_next_step = {}
+            for key, value in state.__dict__.items():
+                kwargs_turbo_next_step[key] = value
+            return kwargs_turbo_next_step
+        else:
+            if verbose_logging:
+                logging_level = 20
+                logger.setLevel(logging_level)
+                if state.restart_triggered:
+                    logger.info('Turbo converged after %d batches with %d trials', count_batch-1, (count_batch-1)*state.batch_size)
+                else:
+                    logger.info('Turbo is terminated as the max number (%d) of trials is reached', total_trials)
         # if verbose_logging:
         #     logging_level = 20
         #     logger.setLevel(logging_level)
         #     logger.info('Finished Turbo')
 
-    def update_params_with_best_balance(self,return_best_balance=False):
-        """ Update the parameters with the best balance of all metrics. 
-        The best balance is defined by ranking the results for each metric and taking the parameters that has the lowest sum of ranks.
-        
-        Raises
-        ------
-        ValueError
-            We need at least one metric to update the parameters
-        """        
-
-        # if we have one objective
-        if len(self.all_metrics) == 1:
-            scaled_best_parameters = self.ax_client.get_best_parameters()[0]
-            self.params_w(scaled_best_parameters,self.params)
-        # if we have multiple objectives
-        elif len(self.all_metrics) > 1:
-            # We do this because the ax_client.get_pareto_optimal_parameters does not necessarily return the best parameters for a balanced results on all objectives
-            df = get_df_ax_client_metrics(self.params, self.ax_client, self.all_metrics)
-            metrics = self.all_metrics
-            minimizes_ = []
-
-            for agent in self.agents:
-                for i in range(len(agent.minimize)):
-                    minimizes_.append(agent.minimize[i])
-
-            ranked_df = copy.deepcopy(df)
-            ranks = []
-            for i in range(len(metrics)):
-                ranked_df[metrics[i]+'_rank'] = ranked_df[metrics[i]].rank(ascending=minimizes_[i])
-                ranks.append(ranked_df[metrics[i]+'_rank'])
-            # get the index of the best balance
-            best_balance_index = np.argmin(np.sum(np.array(ranks), axis=0))
-
-            # get the best parameters
-            scaled_best_parameters = ranked_df.iloc[best_balance_index].to_dict()
-            
-            dum_dic = {}
-            for p in self.params:
-                dum_dic[p.name] = scaled_best_parameters[p.name]
-            scaled_best_parameters = dum_dic
-
-            for p in self.params:
-                if p.name in scaled_best_parameters.keys():
-                    p.value = scaled_best_parameters[p.name]
-            if return_best_balance:
-                return best_balance_index, scaled_best_parameters
-        else:
-            raise ValueError('We need at least one metric to update the parameters')
-
-              
+   
 ######### Turbo specific functions ##############################################################
 @dataclass
 class TurboState:
@@ -1030,9 +1139,13 @@ class TurboState:
         self.best_value = best_value
         for key, value in kwargs.items():
             setattr(self, key, value)
-        self.failure_tolerance = math.ceil(
-                max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
-            )
+        # if we do not set the failure_tolerance, we set it to a value based on the batch size and dimension
+        if not hasattr(self, 'failure_tolerance') or self.failure_tolerance is None:
+            # The original paper uses 4.0 / batch_size, but we use a more robust value
+            # based on the dimension and batch size
+            self.failure_tolerance = math.ceil(
+                    max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
+                )
         
     # def __post_init__(self):
         
@@ -1219,5 +1332,3 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
         raise ValueError(f"Unknown acquisition function type: {acqf}")
 
     return X_next
-if __name__ == '__main__':
-    pass

@@ -306,19 +306,23 @@ def transform_data(y, y_pred, X=None, X_pred=None, transform_type='linear', epsi
         return np.log10(y_transformed), np.log10(y_pred_transformed)
     
     elif transform_type.lower() == 'normalized':
-        # Find the maximum value across both arrays for consistent normalization
-        max_val = max(np.max(np.abs(y_transformed)), np.max(np.abs(y_pred_transformed)))
-        if max_val > 0:  # Avoid division by zero
-            return y_transformed / max_val, y_pred_transformed / max_val
+        y_transformed = y_transformed/np.max(y_transformed)  # Normalize to [0, 1]
+        y_pred_transformed = y_pred_transformed/np.max(y_pred_transformed)
         return y_transformed, y_pred_transformed
+        # # Find the maximum value across both arrays for consistent normalization
+        # max_val = max(np.max(np.abs(y_transformed)), np.max(np.abs(y_pred_transformed)))
+        # if max_val > 0:  # Avoid division by zero
+        #     return y_transformed / max_val, y_pred_transformed / max_val
+        # return y_transformed, y_pred_transformed
     
     elif transform_type.lower() == 'normalized_log':
         # First normalize using the combined max value
-        max_val = max(np.max(np.abs(y_transformed)), np.max(np.abs(y_pred_transformed)))
-        if max_val > 0:  # Avoid division by zero
-            y_transformed = y_transformed / max_val
-            y_pred_transformed = y_pred_transformed / max_val
-        
+        # max_val = max(np.max(np.abs(y_transformed)), np.max(np.abs(y_pred_transformed)))
+        # if max_val > 0:  # Avoid division by zero
+        #     y_transformed = y_transformed / max_val
+            # y_pred_transformed = y_pred_transformed / max_val
+        y_transformed = y_transformed/np.max(y_transformed)  # Normalize to [0, 1]
+        y_pred_transformed = y_pred_transformed/np.max(y_pred_transformed)
         # Then log transform
         y_transformed = np.abs(y_transformed)
         y_transformed[y_transformed <= 0] = epsilon

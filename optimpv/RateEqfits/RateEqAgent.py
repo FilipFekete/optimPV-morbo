@@ -157,7 +157,8 @@ class RateEqAgent(BaseAgent):
         # Check that primary data dimensions match
         if not len(self.exp_format) == len(self.metric) == len(self.loss) == len(self.threshold) == len(self.minimize) == len(self.X) == len(self.y) == len(self.weight):
             raise ValueError('exp_format, metric, loss, threshold and minimize must have the same length')
-        
+        self.all_agent_metrics = self.get_all_agent_metric_names()     
+
         # Process tracking metrics
         if self.tracking_metric is not None:
             if isinstance(self.tracking_metric, str):
@@ -235,7 +236,7 @@ class RateEqAgent(BaseAgent):
             # Check that tracking dimensions match
             if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
                 raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
-        
+        self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()
         # Process compare_type parameter
         self.compare_type = self.kwargs.get('compare_type', 'linear')
         if 'compare_type' in self.kwargs.keys():
@@ -307,10 +308,18 @@ class RateEqAgent(BaseAgent):
             t = self.X[0] # time axis should be the same for all elements
             tmax = 0.99999*1/self.pump_args['fpu'] # maximum time for the pump
             t_span = np.linspace(0,tmax,len(t)) # time axis for the simulation, here we need a different time axis for the simulation in case there is any equilibration to make sure that the full pulse is included and to reproduce the accumulated carrier density properly
+            t = self.X[0]
+            tmax = 0.99999*1/self.pump_args['fpu']
+            t_span = t
+            
+            if t_span[-1] < tmax:
+                dum = np.linspace(t[-1],tmax,100)
+                dum = dum[1:]
+                t_span = np.hstack((t,dum))
 
             # get the pump profile
-            Generation = self.pump_model(t, **self.pump_args) * QE # multiply by the quantum efficiency
-
+            Generation = self.pump_model(t_span, **self.pump_args) * QE # multiply by the quantum efficiency
+            
             if 'N0' in self.pump_args.keys():
                 N0 = self.pump_args['N0']
             else:
@@ -363,11 +372,14 @@ class RateEqAgent(BaseAgent):
         else:
             dum_dict['t'] = t_list
             dum_dict['G_frac'] = Gfrac_list
+
         try:
             df = pd.DataFrame(dum_dict)
         except:
+            print(parameters)
             for key in dum_dict.keys():
                 print(key,len(dum_dict[key]))
+            return np.nan
 
         return df
     
@@ -425,7 +437,17 @@ class RateEqAgent(BaseAgent):
                 N_A = 0
 
             if Gfracs is None:
-                signal = I_factor * k_direct * df['n'] * (df['p'] + N_A) 
+                # check if we have an array
+                if not isinstance(df['n'].iloc[0], (np.ndarray, list)):
+                    # if n and p are not arrays, then we can use them directly  
+                    signal = I_factor * k_direct * df['n'] * (df['p'] + N_A)
+                else:
+                    n_dens = np.asarray(df['n'].values.tolist())
+                    p_dens = np.asarray(df['p'].values.tolist())
+                    Rrad_calc = (n_dens * (p_dens + N_A) * k_direct)
+                    signal = np.sum((Rrad_calc[:, 1:] + Rrad_calc[:, :-1]) / 2, axis=1) * I_factor # need to integrate over the space axis
+
+                # signal = I_factor * k_direct * df['n'] * (df['p'] + N_A)
                 t = df['t']
 
                 # check if t = X
@@ -446,7 +468,14 @@ class RateEqAgent(BaseAgent):
             else:
                 for Gfrac in Gfracs:
                     dum_df = df[df['G_frac'] == Gfrac]
-                    signal = I_factor * k_direct * dum_df['n'] * (dum_df['p'] + N_A) 
+                    if not isinstance(dum_df['n'].iloc[0], (np.ndarray, list)):
+                        # if n and p are not arrays, then we can use them directly
+                        signal = I_factor * k_direct * dum_df['n'] * (dum_df['p'] + N_A)
+                    else:
+                        n_dens = np.asarray(dum_df['n'].values.tolist())
+                        p_dens = np.asarray(dum_df['p'].values.tolist())
+                        Rrad_calc = (n_dens * (p_dens + N_A) * k_direct)
+                        signal = np.sum((Rrad_calc[:, 1:] + Rrad_calc[:, :-1]) / 2, axis=1) * I_factor # need to integrate over the space axis
                     t = dum_df['t']
                     X_ = X[X[:,1] == Gfrac,0]
 
@@ -489,7 +518,16 @@ class RateEqAgent(BaseAgent):
                 raise ValueError('ratio_mu should be provided in the parameters or fixed_model_args')
 
             if Gfracs is None:
-                signal = I_factor*(ratio_mu*df['n'] + df['p'])
+                if not isinstance(df['n'].iloc[0], (np.ndarray, list)):
+                    # if n and p are not arrays, then we can use them directly
+                    signal = I_factor * (ratio_mu * df['n'] + df['p'])
+                else:
+                    n_dens = np.asarray(df['n'].values.tolist())
+                    p_dens = np.asarray(df['p'].values.tolist())
+                    signal = (ratio_mu * n_dens + p_dens)
+                    signal = np.mean((signal), axis=1) * I_factor # need to integrate over the space axis, no need to 
+
+                # signal = I_factor*(ratio_mu*df['n'] + df['p'])
                 t = df['t']
 
                 # check if t = X
@@ -510,7 +548,15 @@ class RateEqAgent(BaseAgent):
             else:
                 for Gfrac in Gfracs:
                     dum_df = df[df['G_frac'] == Gfrac]
-                    signal = I_factor*(ratio_mu*dum_df['n'] + dum_df['p'])
+                    # signal = I_factor*(ratio_mu*dum_df['n'] + dum_df['p'])
+                    if not isinstance(dum_df['n'].iloc[0], (np.ndarray, list)):
+                        # if n and p are not arrays, then we can use them directly
+                        signal = I_factor * (ratio_mu * dum_df['n'] + dum_df['p'])
+                    else:
+                        n_dens = np.asarray(dum_df['n'].values.tolist())
+                        p_dens = np.asarray(dum_df['p'].values.tolist())
+                        signal = (ratio_mu * n_dens + p_dens)
+                        signal = np.mean((signal), axis=1) * I_factor # need to integrate over the space axis, no need to 
                     t = dum_df['t']
                     X_ = X[X[:,1] == Gfrac,0]
 
@@ -561,7 +607,13 @@ class RateEqAgent(BaseAgent):
                     raise ValueError('L should be provided in the parameters or fixed_model_args')
                                 
                 if Gfracs is None:
-                    signal = df['n']
+                    # check if we have an array
+                    if not isinstance(df['n'].iloc[0], (np.ndarray, list)):
+                        # if n is not an array, then we can use it directly  
+                        signal = df['n']
+                    else:
+                        signal = np.mean(np.asarray(df['n'].values.tolist()))
+                    # signal = df['n']
                     t = df['t']
     
                     # check if t = X
@@ -664,19 +716,19 @@ class RateEqAgent(BaseAgent):
         """    
                 
         parameters_rescaled = self.params_rescale(parameters, self.params)
-        
+        # print('Running RateEqAgent with parameters:', parameters_rescaled)
         df = self.run_RateEq(parameters_rescaled)
-
+        # print('Finished running RateEqAgent with parameters:', parameters_rescaled)
 
         if df is np.nan:
             dum_dict = {}
             for i in range(len(self.exp_format)):
-                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = np.nan
-                
+                dum_dict[self.all_agent_metrics[i]] = np.nan
+
             # Add NaN values for tracking metrics
             if self.tracking_metric is not None:
                 for j in range(len(self.tracking_metric)):
-                    dum_dict[self.name+'_'+self.tracking_exp_format[j]+'_tracking_'+self.tracking_metric[j]] = np.nan
+                    dum_dict[self.all_agent_tracking_metrics[j]] = np.nan
                         
             return dum_dict
         
@@ -711,9 +763,8 @@ class RateEqAgent(BaseAgent):
                     sample_weight=self.weight[i], 
                     metric_name=self.metric[i]
                 )
-            
-            dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(metric_value, loss=self.loss[i])
-                
+            dum_dict[self.all_agent_metrics[i]] = loss_function(metric_value, loss=self.loss[i])
+
         # Second loop: calculate all tracking metrics using tracking_X and tracking_y
         if self.tracking_metric is not None:
             for j in range(len(self.tracking_metric)):
@@ -739,6 +790,6 @@ class RateEqAgent(BaseAgent):
                     metric_name=metric_name
                 )
                 
-                dum_dict[self.name+'_'+exp_fmt+'_tracking_'+metric_name] = loss_function(metric_value, loss=loss_type)
+                dum_dict[self.all_agent_tracking_metrics[j]] = loss_function(metric_value, loss=loss_type)
 
         return dum_dict

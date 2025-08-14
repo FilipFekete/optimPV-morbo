@@ -241,6 +241,9 @@ class IMPSAgent(SIMsalabimAgent):
             if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
                 raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
                 
+        self.all_agent_metrics = self.get_all_agent_metric_names()
+        self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()
+
         # Add compare_type parameter
         self.compare_type = self.kwargs.get('compare_type', 'linear')
         if 'compare_type' in self.kwargs.keys():
@@ -285,7 +288,6 @@ class IMPSAgent(SIMsalabimAgent):
         pnames = list(SIMsalabim_params[list(SIMsalabim_params.keys())[0]].keys())
         pnames = pnames + list(SIMsalabim_params[list(SIMsalabim_params.keys())[1]].keys())
         self.pnames = pnames    
-
 
     def target_metric(self, y, yfit, metric_name, X=None, Xfit=None, sample_weight=None):
         """Calculate the target metric depending on self.metric
@@ -338,13 +340,13 @@ class IMPSAgent(SIMsalabimAgent):
         df = self.run_IMPS_simulation(parameters)
         if df is np.nan:
             dum_dict = {}
-            for i in range(len(self.exp_format)):
-                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = np.nan
+            for i in range(len(self.all_agent_metrics)):
+                dum_dict[self.all_agent_metrics[i]] = np.nan
                 
-                # Add NaN values for tracking metrics
-                if self.tracking_metric is not None:
-                    for j in range(len(self.tracking_metric)):
-                        dum_dict[self.name+'_'+self.tracking_exp_format[j]+'_tracking_'+self.tracking_metric[j]] = np.nan
+            # Add NaN values for tracking metrics
+            if self.tracking_metric is not None:
+                for j in range(len(self.all_agent_tracking_metrics)):
+                    dum_dict[self.all_agent_tracking_metrics[j]] = np.nan
                     
             return dum_dict
         
@@ -383,11 +385,11 @@ class IMPSAgent(SIMsalabimAgent):
                     sample_weight=self.weight[i]
                 )
             
-            dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(metric_value, loss=self.loss[i])
+            dum_dict[self.all_agent_metrics[i]] = loss_function(metric_value, loss=self.loss[i])
         
         # Second loop: calculate all tracking metrics
         if self.tracking_metric is not None:
-            for j in range(len(self.tracking_metric)):
+            for j in range(len(self.all_agent_tracking_metrics)):
                 exp_fmt = self.tracking_exp_format[j]
                 metric_name = self.tracking_metric[j]
                 loss_type = self.tracking_loss[j]
@@ -424,7 +426,7 @@ class IMPSAgent(SIMsalabimAgent):
                         sample_weight=self.tracking_weight[j]
                     )
                 
-                dum_dict[self.name+'_'+exp_fmt+'_tracking_'+metric_name] = loss_function(metric_value, loss=loss_type)
+                dum_dict[self.all_agent_tracking_metrics[j]] = loss_function(metric_value, loss=loss_type)
         
         return dum_dict
     
@@ -479,7 +481,7 @@ class IMPSAgent(SIMsalabimAgent):
         ret, mess = run_IMPS_simu(self.simulation_setup, self.session_path, self.f_min, self.f_max, self.f_steps, self.V, self.G_frac, self.GStep,  run_mode=False, output_file = 'freqY.dat', UUID=UUID, cmd_pars=clean_pars, **dummy_kwargs)
         
         if type(ret) == int: 
-            if not ret == 0 :
+            if not (ret == 0  or ret == 95):
                 print('Error in running SIMsalabim: '+mess)
                 return np.nan
         elif isinstance(ret, subprocess.CompletedProcess):

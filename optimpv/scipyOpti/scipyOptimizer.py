@@ -160,13 +160,15 @@ class ScipyOptimizer(BaseAgent):
             # Map parameter vector to dictionary
             
             param_dict = {}
+            idx = 0
             for i, param in enumerate(self.params):
-                if param.type == 'fixed':
-                    # Include fixed parameters with their fixed values
-                    param_dict[param.name] = param.value
-                    continue
-                else:
-                    param_dict[param.name] = x[i]
+                if param.type != 'fixed':
+                #     # Include fixed parameters with their fixed values
+                #     param_dict[param.name] = param.value
+                #     continue
+                # else:
+                    param_dict[param.name] = x[idx]
+                    idx += 1
                     
             # Evaluate all agents
             results = {}
@@ -184,29 +186,19 @@ class ScipyOptimizer(BaseAgent):
                 # Combine results according to objectives (assuming minimization)
                 combined_result = 0
                 for agent in self.agents:
-                    for i, metric in enumerate(agent.metric):
-                        if hasattr(agent, 'exp_format'):
-                            key = f"{agent.name}_{agent.exp_format[i]}_{agent.metric[i]}"
-                        else:
-                            key = f"{agent.name}_{agent.metric[i]}"
-                        
-                        value = results[key]
+                    for i in range(len(agent.all_agent_metrics)):
+                        value = results[agent.all_agent_metrics[i]]
                         # Adjust sign for maximization objectives
                         sign = 1 if agent.minimize[i] else -1
                         combined_result += sign * value
                 
-                return combined_result
+                return combined_result/len(self.agents)  # Average over agents
             else:
                 # For multi-objective, return all objective values
                 objective_values = []
                 for agent in self.agents:
-                    for i, metric in enumerate(agent.metric):
-                        if hasattr(agent, 'exp_format'):
-                            key = f"{agent.name}_{agent.exp_format[i]}_{agent.metric[i]}"
-                        else:
-                            key = f"{agent.name}_{agent.metric[i]}"
-                        
-                        value = results[key]
+                    for i  in range(len(agent.all_agent_metrics)):
+                        value = results[agent.all_agent_metrics[i]]
                         # Adjust sign for maximization objectives
                         sign = 1 if agent.minimize[i] else -1
                         objective_values.append(sign * value)
@@ -226,12 +218,8 @@ class ScipyOptimizer(BaseAgent):
         """
         metrics = []
         for agent in self.agents:
-            for i, metric in enumerate(agent.metric):
-                if hasattr(agent, 'exp_format'):
-                    metrics.append(f"{agent.name}_{agent.exp_format[i]}_{agent.metric[i]}")
-                else:
-                    metrics.append(f"{agent.name}_{agent.metric[i]}")
-        
+            for i in range(len(agent.all_agent_metrics)):
+                metrics.append(agent.all_agent_metrics[i])
         return metrics
     
     def evaluate(self, args):

@@ -49,6 +49,7 @@ temp/
 
 /testing_notebooks/
 /.tmp_dir/
+/SIMsalabim*/
 /SIMsalabim/
 !/Data/matdata/*txt
 !/Data/simsalabim_test_inputs/fakeOPV/*
@@ -56,4 +57,8 @@ temp/
 # !/Data/simsalabim_test_inputs/JVrealPerovskite/*
 !/Data/simsalabim_test_inputs/JVrealOPV/*
 !/Data/perovskite_trPL_trMC/*
+!/Data/perovskite_trPL/*
+!/Data/6D_pero_opti/*
+!/Data/pero_MOO_opti/*
+
 

@@ -213,7 +213,9 @@ class DiodeAgent(BaseAgent):
         for form in self.exp_format:
             if form not in ['dark','light']:
                 raise ValueError(f'{form} is an invalid exp_format, must be either "dark" or "light"')
-                
+
+        self.all_agent_metrics = self.get_all_agent_metric_names() 
+        self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()        
         # Add compare_type parameter
         self.compare_type = self.kwargs.get('compare_type', 'linear')
         if 'compare_type' in self.kwargs.keys():
@@ -322,11 +324,11 @@ class DiodeAgent(BaseAgent):
                 metric_value = calc_metric(self.y, yfit, 
                                           sample_weight=self.weight[i], metric_name=metric_name)
             
-            dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(metric_value, loss=self.loss[i])
+            dum_dict[self.all_agent_metrics[i]] = loss_function(metric_value, loss=self.loss[i])
             
             # Calculate tracking metrics if they exist
             if self.tracking_metric is not None:
-                for j in range(len(self.tracking_metric)):
+                for j in range(len(self.all_agent_tracking_metrics)):
                     if self.tracking_exp_format[j] == self.exp_format[i]:
                         tracking_metric_name = self.tracking_metric[j]
                         
@@ -341,7 +343,7 @@ class DiodeAgent(BaseAgent):
                             tracking_metric_value = calc_metric(self.tracking_y[j], yfit, 
                                                              sample_weight=self.tracking_weight[j], metric_name=tracking_metric_name)
                         
-                        dum_dict[self.name+'_'+self.tracking_exp_format[j]+'_tracking_'+tracking_metric_name] = loss_function(
+                        dum_dict[self.all_agent_tracking_metrics[j]] = loss_function(
                             tracking_metric_value, loss=self.tracking_loss[j])
 
         return dum_dict

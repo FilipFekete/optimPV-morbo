@@ -10,10 +10,17 @@ from functools import partial
 from logging import Logger
 import time
 import logging
-logging.basicConfig(format='[%(levelname)s %(asctime)s] %(name)s: %(message)s', level=logging.INFO)
+# logging.basicConfig(format='[%(levelname)s %(asctime)s] %(name)s: %(message)s', level=logging.INFO)
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
+from optimpv.general.logger import get_logger, _round_floats_for_logging
 
+logger: Logger = get_logger('EmceeOptimizer')
+ROUND_FLOATS_IN_LOGS_TO_DECIMAL_PLACES: int = 6
+round_floats_for_logging = partial(
+    _round_floats_for_logging,
+    decimal_places=ROUND_FLOATS_IN_LOGS_TO_DECIMAL_PLACES,
+)
 # Assuming other necessary imports like the base optimizer class or model interface exist
 from optimpv.general.BaseAgent import BaseAgent # Import BaseAgent
 
@@ -96,18 +103,34 @@ class EmceeOptimizer(BaseAgent): # Inherit from BaseAgent
         self.chain = None
         self.flat_samples = None
         self.results = None
-        self.all_metrics = self._get_all_metrics() # Helper to get metric names
+        self.all_metrics = self.create_metrics_list() # Helper to get metric names
 
-    def _get_all_metrics(self):
-        """ Get a list of all metric names from the agents. """
+    # def _get_all_metrics(self):
+    #     """ Get a list of all metric names from the agents. """
+    #     metrics = []
+    #     for agent in self.agents:
+    #         for i in range(len(agent.metric)):
+    #             if hasattr(agent, 'exp_format'):
+    #                 metrics.append(f"{agent.name}_{agent.exp_format[i]}_{agent.metric[i]}")
+    #             else:
+    #                 metrics.append(f"{agent.name}_{agent.metric[i]}")
+    #     return metrics
+    
+    def create_metrics_list(self):
+        """
+        Create a list of all metrics from all agents.
+        
+        Returns
+        -------
+        list
+            List of metric names
+        """
         metrics = []
         for agent in self.agents:
-            for i in range(len(agent.metric)):
-                if hasattr(agent, 'exp_format'):
-                    metrics.append(f"{agent.name}_{agent.exp_format[i]}_{agent.metric[i]}")
-                else:
-                    metrics.append(f"{agent.name}_{agent.metric[i]}")
+            for i in range(len(agent.all_agent_metrics)):
+                metrics.append(agent.all_agent_metrics[i])
         return metrics
+    
 
     def create_search_space(self, params):
         """Create search space details (initial vector, bounds, mapping) from FitParam list.

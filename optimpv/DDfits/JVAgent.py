@@ -138,7 +138,8 @@ class JVAgent(SIMsalabimAgent):
         # check that exp_format, metric, loss, threshold and minimize have the same length
         if not len(self.exp_format) == len(self.metric) == len(self.loss) == len(self.threshold) == len(self.minimize) == len(self.X) == len(self.y) == len(self.weight):
             raise ValueError('exp_format, metric, loss, threshold and minimize must have the same length')
-                
+        self.all_agent_metrics = self.get_all_agent_metric_names()       
+
         # Process tracking metrics and losses
         if self.tracking_metric is not None:
             if isinstance(self.tracking_metric, str):
@@ -220,7 +221,7 @@ class JVAgent(SIMsalabimAgent):
             # check that tracking_exp_format, tracking_metric and tracking_loss have the same length
             if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
                 raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
-        
+        self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()
         # Add compare_type parameter
         self.compare_type = self.kwargs.get('compare_type', 'linear')
         if 'compare_type' in self.kwargs.keys():
@@ -327,14 +328,14 @@ class JVAgent(SIMsalabimAgent):
         df = self.run_JV(parameters)
         if df is np.nan:
             dum_dict = {}
-            for i in range(len(self.exp_format)):
-                dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = np.nan
-            
+            for i in range(len(self.all_agent_metrics)):
+                dum_dict[self.all_agent_metrics[i]] = np.nan
+
                 # Add NaN values for tracking metrics
                 if self.tracking_metric is not None:
-                    for j in range(len(self.tracking_metric)):
-                        dum_dict[self.name+'_'+self.tracking_exp_format[j]+'_tracking_'+self.tracking_metric[j]] = np.nan
-                    
+                    for j in range(len(self.all_agent_tracking_metrics)):
+                        dum_dict[self.all_agent_tracking_metrics[j]] = np.nan
+
             return dum_dict
         
         dum_dict = {}
@@ -370,11 +371,11 @@ class JVAgent(SIMsalabimAgent):
                     metric_name=self.metric[i]
                 )
             
-            dum_dict[self.name+'_'+self.exp_format[i]+'_'+self.metric[i]] = loss_function(metric_value, loss=self.loss[i])
+            dum_dict[self.all_agent_metrics[i]] = loss_function(metric_value, loss=self.loss[i])
         
         # Second loop: calculate all tracking metrics
         if self.tracking_metric is not None:
-            for j in range(len(self.tracking_metric)):
+            for j in range(len(self.all_agent_tracking_metrics)):
                 exp_fmt = self.tracking_exp_format[j]
                 metric_name = self.tracking_metric[j]
                 loss_type = self.tracking_loss[j]
@@ -408,9 +409,9 @@ class JVAgent(SIMsalabimAgent):
                         sample_weight=self.tracking_weight[j], 
                         metric_name=metric_name
                     )
-                
-                dum_dict[self.name+'_'+exp_fmt+'_tracking_'+metric_name] = loss_function(metric_value, loss=loss_type)
-        
+
+                dum_dict[self.all_agent_tracking_metrics[j]] = loss_function(metric_value, loss=loss_type)
+
         return dum_dict
     
     def run_JV(self, parameters):
@@ -474,7 +475,7 @@ class JVAgent(SIMsalabimAgent):
         ret, mess = run_SS_JV(self.simulation_setup, self.session_path, JV_file_name = 'JV.dat', G_fracs = Gfracs, UUID=UUID, cmd_pars=clean_pars, parallel = parallel, max_jobs = max_jobs)
 
         if type(ret) == int:
-            if not ret == 0 :
+            if not (ret == 0  or ret == 95) :
                 print('Error in running SIMsalabim: '+mess)
                 return np.nan
         elif isinstance(ret, subprocess.CompletedProcess):
