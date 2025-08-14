@@ -12,26 +12,10 @@ optimpv.axBOtorch.EGBO module
    :undoc-members:
    :show-inheritance:
 
-optimpv.axBOtorch.TURBO module
-------------------------------
-
-.. automodule:: optimpv.axBOtorch.TURBO
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 optimpv.axBOtorch.axBOtorchOptimizer module
 -------------------------------------------
 
 .. automodule:: optimpv.axBOtorch.axBOtorchOptimizer
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-optimpv.axBOtorch.axSchedulerUtils module
------------------------------------------
-
-.. automodule:: optimpv.axBOtorch.axSchedulerUtils
    :members:
    :undoc-members:
    :show-inheritance:

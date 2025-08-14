@@ -2,7 +2,7 @@ Change Log
 ==========
 All notable changes to this project will be documented in this file.
 
-v1.03 - 2025-07-28 - VMLC-PV
+v1.03 - 2025-08-14 - VMLC-PV
 -----------------------------
 - Upgrading the ax-platform version to 1.0.0.
 - axBOtorchOptimizer: Removing the optimize(batch=True) that used the runner in older versions of optimPV. Mostly because it did not provide any significant benefits and added unnecessary complexity and that the new ax-platform broke the compatibility with the old code. Multiple small fixes to the code to make it compatible with the new ax-platform version 1.0.0. Removed the parallel_agent option and replaced it with a parallel option that will run everything in parallel.

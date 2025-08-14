@@ -108,12 +108,12 @@ This repository is still under development. If you find any bugs or have any que
 
    ../examples/TAS.ipynb
    ../examples/MO_trPL_trMC.ipynb
-   ../examples/trPL_diff.ipynb
+   ../examples/TrPL_diff.ipynb
 
 .. toctree::
    :maxdepth: 2
-   :caption: Rate equation models:
-   
+   :caption: Design of experiments:
+
    ../examples/Exp_design.ipynb
    ../examples/Exp_design_turbo.ipynb
    ../examples/Exp_design_MOO.ipynb

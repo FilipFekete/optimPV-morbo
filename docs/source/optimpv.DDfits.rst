@@ -1,6 +1,14 @@
 optimpv.DDfits package
 ======================
 
+Subpackages
+-----------
+
+.. toctree::
+   :maxdepth: 4
+
+   optimpv.DDfits.old
+
 Submodules
 ----------
 

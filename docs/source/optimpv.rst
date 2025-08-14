@@ -15,7 +15,9 @@ Subpackages
    optimpv.axBOtorch
    optimpv.general
    optimpv.posterior
+   optimpv.pymooOpti
    optimpv.scipyOpti
+   optimpv.tests
 
 Module contents
 ---------------

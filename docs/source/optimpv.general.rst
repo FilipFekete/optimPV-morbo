@@ -20,10 +20,26 @@ optimpv.general.FitParams module
    :undoc-members:
    :show-inheritance:
 
+optimpv.general.SuggestOnlyAgent module
+---------------------------------------
+
+.. automodule:: optimpv.general.SuggestOnlyAgent
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 optimpv.general.general module
 ------------------------------
 
 .. automodule:: optimpv.general.general
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+optimpv.general.logger module
+-----------------------------
+
+.. automodule:: optimpv.general.logger
    :members:
    :undoc-members:
    :show-inheritance:
