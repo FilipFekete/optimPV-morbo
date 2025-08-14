@@ -90,30 +90,40 @@ This repository is still under development. If you find any bugs or have any que
    :maxdepth: 2
    :caption: Drift-diffusion:
 
-   ../examples/test_JV_realOPV.ipynb
-   ../examples/test_JV_fakePerovskite.ipynb
-   ../examples/test_MO_hysteresis_fakePerovskite.ipynb
-   ../examples/test_MO_JV_impedance_fakePerovskite.ipynb
+   ../examples/JV_realOPV.ipynb
+   ../examples/JV_fakePerovskite.ipynb
+   ../examples/MO_hysteresis_fakePerovskite.ipynb
+   ../examples/MO_JV_impedance_fakePerovskite.ipynb
    Notebook_gallery_DD
 
 .. toctree::
    :maxdepth: 2
    :caption: Transfer Matrix:
 
-   ../examples/test_TransferMatrix.ipynb
+   ../examples/TransferMatrix.ipynb
 
 .. toctree::
    :maxdepth: 2
    :caption: Rate equation models:
 
-   ../examples/test_TAS.ipynb
-   ../examples/test_MO_trPL_trMC.ipynb
+   ../examples/TAS.ipynb
+   ../examples/MO_trPL_trMC.ipynb
+   ../examples/trPL_diff.ipynb
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Rate equation models:
+   
+   ../examples/Exp_design.ipynb
+   ../examples/Exp_design_turbo.ipynb
+   ../examples/Exp_design_MOO.ipynb
+   ../examples/Exp_design_MOO_pymoo.ipynb
 
 .. toctree::
    :maxdepth: 2
    :caption: Non-ideal diode models:
 
-   ../examples/test_diode.ipynb
+   ../examples/diode.ipynb
 
 .. toctree::
    :maxdepth: 2

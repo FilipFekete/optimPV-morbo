@@ -3,16 +3,28 @@ All notebooks
 
 .. nbgallery::
    
-   ../examples/test_JV_fakeOPV.ipynb
-   ../examples/test_JV_fakeOPV_BayesInf.ipynb
-   ../examples/test_JV_realOPV.ipynb
-   ../examples/test_JV_realOPV_MO.ipynb
-   ../examples/test_JV_fakePerovskite.ipynb
-   ../examples/test_JV_realPerovskite.ipynb
-   ../examples/test_MO_hysteresis_fakePerovskite.ipynb
-   ../examples/test_MO_JV_impedance_fakePerovskite.ipynb
-   ../examples/test_TransferMatrix.ipynb
-   ../examples/test_MO_trPL_trMC.ipynb
-   ../examples/test_TAS.ipynb
-   ../examples/test_TAS_BayesInf.ipynb
-   ../examples/test_diode.ipynb
+   ../examples/JV_fakeOPV.ipynb
+   ../examples/JV_realOPV.ipynb
+   ../examples/JV_realOPV_MO.ipynb
+   ../examples/JV_fakePerovskite.ipynb
+   ../examples/JV_realPerovskite.ipynb
+   ../examples/MO_hysteresis_fakePerovskite.ipynb
+   ../examples/MO_JV_impedance_fakePerovskite.ipynb
+   ../examples/JV_fakeOPV_BayesInf.ipynb
+   ../examples/JV_fakeOPV_pymoo.ipynb
+   ../examples/TransferMatrix.ipynb
+   ../examples/TransferMatrix_EGBO.ipynb
+   ../examples/TransferMatrix_pymoo.ipynb
+   ../examples/MO_trPL_trMC.ipynb
+   ../examples/MO_trPL_trMC_pymoo.ipynb
+   ../examples/trPL_diff.ipynb
+   ../examples/TAS.ipynb
+   ../examples/TAS_BayesInf.ipynb
+   ../examples/diode.ipynb
+   ../examples/diode_pymoo.ipynb
+   ../examples/Exp_design.ipynb
+   ../examples/Exp_design_turbo.ipynb
+   ../examples/Exp_design_pymoo.ipynb
+   ../examples/Exp_design_MOO.ipynb
+   ../examples/Exp_design_MOO_pymoo.ipynb
+

@@ -5,11 +5,12 @@ It contains a collection of Jupyter notebooks that demonstrate various features 
 
 .. nbgallery::
    
-   ../examples/test_JV_fakeOPV.ipynb
-   ../examples/test_JV_realOPV.ipynb
-   ../examples/test_JV_realOPV_MO.ipynb
-   ../examples/test_JV_fakePerovskite.ipynb
-   ../examples/test_JV_realPerovskite.ipynb
-   ../examples/test_MO_hysteresis_fakePerovskite.ipynb
-   ../examples/test_MO_JV_impedance_fakePerovskite.ipynb
-   ../examples/test_JV_fakeOPV_BayesInf.ipynb
+   ../examples/JV_fakeOPV.ipynb
+   ../examples/JV_realOPV.ipynb
+   ../examples/JV_realOPV_MO.ipynb
+   ../examples/JV_fakePerovskite.ipynb
+   ../examples/JV_realPerovskite.ipynb
+   ../examples/MO_hysteresis_fakePerovskite.ipynb
+   ../examples/MO_JV_impedance_fakePerovskite.ipynb
+   ../examples/JV_fakeOPV_BayesInf.ipynb
+   ../examples/JV_fakeOPV_pymoo.ipynb
