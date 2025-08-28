@@ -176,6 +176,9 @@ class axBOtorchOptimizer(BaseAgent):
             self.batch_size = [batch_size]*len(models)
         if len(batch_size) != len(models):
             raise ValueError('batch_size and models must have the same length')
+        
+        self.torch_dtype = self.kwargs.get('torch_dtype',torch.float64)
+        torch.set_default_dtype(self.torch_dtype)
 
 
     def create_generation_strategy(self):
@@ -429,8 +432,7 @@ class axBOtorchOptimizer(BaseAgent):
         outcome_constraints = self.kwargs.get('outcome_constraints',None)
         parameter_constraints = self.kwargs.get('parameter_constraints',None)
         parallel = self.kwargs.get('parallel',True)
-        torch_dtype = self.kwargs.get('torch_dtype',torch.float64)
-        torch.set_default_dtype(torch_dtype)
+        
 
         # if len(self.agents) == 1: # If there is only one agent, disable parallelism
         #     parallel_agents = False
@@ -693,8 +695,8 @@ class axBOtorchOptimizer(BaseAgent):
                 raise ValueError('Turbo only supports BoTorch as the second model')
         
         # Set the device and dtype
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        dtype = torch.double
+        device = self.kwargs.get('device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        dtype = self.kwargs.get('dtype', torch.float64)
         max_cholesky_size = float("inf")  # Always use Cholesky
         
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
@@ -808,7 +810,7 @@ class axBOtorchOptimizer(BaseAgent):
                     Y_tracking = Y_tracking[~nan_idx]
                 num_sobol += self.batch_size[0]
                 count_batch += 1
-
+                
             if verbose_logging:
                 logging_level = 20
                 logger.setLevel(logging_level)

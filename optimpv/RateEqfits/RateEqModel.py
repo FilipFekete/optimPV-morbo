@@ -771,16 +771,25 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     else:
         T = 300
 
+    # kwargs
+    dimentionless = kwargs.get('dimentionless', True)
+    grid_size = kwargs.get('grid_size', 100)  # number of grid points
+    timeout = kwargs.get('timeout', 90)
+    method = kwargs.get('method', 'BDF')  # default method for solve_ivp
+    use_jacobian = kwargs.get('use_jacobian', True)
+    rtol = kwargs.get('rtol', 1e-3)
+    atol = kwargs.get('atol', 1e-6)
+
+    # Derived quantities
     ni = np.sqrt(N_c*N_v*np.exp(-Eg/(kb*T))) # intrinsic carrier concentration in m^-3
     p1s = N_v*np.exp(-E_t_bulk_list/(2*kb*T)) 
     n1s = N_c*np.exp((E_t_bulk_list-Eg)/(kb*T))  
     D_n = mu_n * kb * T  # electron diffusion coefficient in m^2 s^-1
     D_p = mu_p * kb * T  # hole diffusion coefficient in m^2 s^-1
-
+    
     ft = (C_n_bulk_list*ni + C_p_bulk_list*p1s)/(C_n_bulk_list *(ni + n1s) + C_p_bulk_list*(p1s + ni)) # proportion of electrons that are trapped (filling probability at steady state, in the dark)
 
     number_of_traps = len(N_t_bulk_list)
-    grid_size = kwargs.get('grid_size', 100)  # number of grid points
     z_array = np.linspace(0, L, grid_size)  # spatial domain
     dz = z_array[1] - z_array[0]  # spatial step size
 
@@ -811,8 +820,9 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         d2P = np.zeros_like(P)
         d2P[1:-1] = (P[2:] - 2 * P[1:-1] + P[:-2]) / dz**2
         # Zero-flux boundary conditions (d/dx = 0 at boundaries)
-        d2P[0] = (P[1] - P[0]) / (dz ** 2)  # Left boundary (forward difference)
-        d2P[-1] = (P[-2] - P[-1]) / (dz ** 2)  # Right boundary (backward difference)
+        ## M.S Correction: factor 2 in front of both boundaries, which is the correct boundary condition
+        d2P[0] = 2*(P[1] - P[0]) / (dz ** 2)  # Left boundary (forward difference)
+        d2P[-1] = 2*(P[-2] - P[-1]) / (dz ** 2)  # Right boundary (backward difference)
         return d2P
 
     def model_vect(t, P_flat, kdirect, Eg, Bulk_tr, Bn, Bp, ETrap, Nc, Nv, T, D_n, D_p, number_of_traps, grid_size, dz):
@@ -883,19 +893,19 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         diag_n[1:-1] += -2 * D_n / dz**2
         J[idx_n[1:-1], idx_n[:-2]] = D_n / dz**2
         J[idx_n[1:-1], idx_n[2:]]  = D_n / dz**2
-        diag_n[0] += -1 * D_n / dz**2
-        J[idx_n[0], idx_n[1]] = D_n / dz**2
-        diag_n[-1] += -1 * D_n / dz**2
-        J[idx_n[-1], idx_n[-2]] = D_n / dz**2
+        diag_n[0] += -2 * D_n / dz**2
+        J[idx_n[0], idx_n[1]] = 2 * D_n / dz**2
+        diag_n[-1] += -2 * D_n / dz**2
+        J[idx_n[-1], idx_n[-2]] = 2 * D_n / dz**2
 
         # Diffusion for p
         diag_p[1:-1] += -2 * D_p / dz**2
         J[idx_p[1:-1], idx_p[:-2]] = D_p / dz**2
         J[idx_p[1:-1], idx_p[2:]]  = D_p / dz**2
-        diag_p[0] += -1 * D_p / dz**2
-        J[idx_p[0], idx_p[1]] = D_p / dz**2
-        diag_p[-1] += -1 * D_p / dz**2
-        J[idx_p[-1], idx_p[-2]] = D_p / dz**2
+        diag_p[0] += -2 * D_p / dz**2
+        J[idx_p[0], idx_p[1]] = 2 * D_p / dz**2
+        diag_p[-1] += -2 * D_p / dz**2
+        J[idx_p[-1], idx_p[-2]] = 2 * D_p / dz**2
 
         J[idx_n, idx_n] = diag_n
         J[idx_p, idx_p] = diag_p
@@ -953,10 +963,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
             dPdt[i+2] = (e_capture[i] - e_emission[i] - h_capture[i] + h_emission[i])
 
         return dPdt.reshape(-1, n_times)
-    
-
-
-    dimentionless = kwargs.get('dimentionless', False)
+        
     RealChange,diff = 1e40,1e40 # artificially large to start with
     end_point = 1e-20
     if dimentionless:
@@ -972,31 +979,32 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         D_n = D_n * tau/(L**2)
         D_p = D_p * tau/(L**2)
         generation = generation * ni * tau
-        arg = [k_direct * ni * tau, Eg, N_t_bulk_list/ni, C_n_bulk_list * ni * tau, C_p_bulk_list * ni * tau, E_t_bulk_list, N_c/ni, N_v/ni, T, D_n, D_p, number_of_traps, grid_size, dz]
+        arg = [k_direct * ni * tau, Eg, N_t_bulk_list/ni, C_n_bulk_list * ni * tau, C_p_bulk_list * ni * tau, E_t_bulk_list, N_c/ni, N_v/ni, T, D_n, D_p, number_of_traps, grid_size, dx]
 
-    timeout = kwargs.get('timeout', 120)
+    
     t_start = time.time()
     count = 0
-    method = kwargs.get('method', 'Radau')  # default method for solve_ivp
-    rtol = kwargs.get('rtol', 1e-3)
-    atol = kwargs.get('atol', 1e-6)
-
+    
     # try:
     if equilibrate:
         while True:
-        #     print(f"Equilibrating {count} times ",parameters)+
-            # print(time.time()- t_start, RealChange)
+            # print(f"Equilibrating {count} times ",parameters, 'realChange',np.mean(RealChange))
+            # print(time.time()- t_start, np.mean(RealChange))
             if time.time() - t_start > timeout:
                 logger.warning("Equilibration took too long, stopping.")
                 return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
 
             if dimentionless:
-                #sol_single = solve_ivp(model_vect, [t[0], 1/(reprates[i])], P0, method='BDF', args=arg, vectorized=True, jac=jacobian_no_flux_vectorized_fixed, rtol=1e-3, atol=1e-3)
-                sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span)#,jac=jacobian_no_flux_vectorized_fixed,)
+                if use_jacobian:
+                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed,)
+                else:
+                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span)
             else:
-                sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed,)
-                #sol_single = solve_ivp(model, [t[0],1/(reprates[i])], P0, t_eval = t, method='BDF', args=arg, rtol=1e-3, atol=1e-3, min_step = 1e-18, vectorized=vectorised)
-        
+                if use_jacobian:
+                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed,)
+                else:
+                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span)
+
             if not(sol_single.success):
                 logger.warning("ODE solver did not converge, returning NaN arrays.")
                 return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
@@ -1015,10 +1023,14 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
                 P0[u*grid_size:(u+1)*grid_size] = sol_flat[u,:,-1]
 
             new_end = n_last#(sol_flat[:,0,-1])
-            RealChange  = ((new_end - end_point)/end_point) # relative change of mean
+            RealChange  = abs((new_end - end_point)/end_point) # relative change of mean
             end_point = new_end
             count += 1
             # print(f'Equilibrating: {count} iterations, Relative Change: {np.max(abs(RealChange))}', parameters)
+            # if np.mean(RealChange) < eq_limit and not np.all(abs(RealChange) < eq_limit):
+            #     # count number of false in np.all(abs(RealChange)
+            #     false_count = np.sum(~np.all(abs(RealChange) < eq_limit))
+            #     print(false_count, 'points not yet converged in count', count)
             if np.all(abs(RealChange) < eq_limit) or count > maxcount or np.sum(diff == 0):
                 if count > maxcount:
                     logger.warning("Equilibration did not converge within the maximum number of iterations.")
@@ -1028,12 +1040,30 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     
 
     # Now run the simulation with the right time
+    print("Running the simulation ad",parameters)
     if dimentionless:
         t = t/ tau
-        sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)#,jac=jacobian_no_flux_vectorized_fixed)
+        if use_jacobian:
+            sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+        else:
+            sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
     else:
-
-        sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)#,jac=jacobian_no_flux_vectorized_fixed)#,jac=jacobian_no_flux_vectorized_fixed)
+        if use_jacobian:
+            sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+        else:
+            sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
+    print('done',parameters)
+    # if dimentionless:
+    #     t = t/ tau
+    #     if use_jacobian:
+    #         sol = solve_ivp(model_vect_dimensionless, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+    #     else:
+    #         sol = solve_ivp(model_vect_dimensionless, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
+    # else:
+    #     if use_jacobian:
+    #         sol = solve_ivp(model_vect, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+    #     else:
+    #         sol = solve_ivp(model_vect, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
     if not(sol.success):
         logger.warning("ODE solver did not converge, returning NaN arrays.")
         return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
@@ -1059,7 +1089,6 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
 
         return n_list, p_list
     else:
-
         return n_dens, p_dens
     # except Exception as e:
     #     print(e)
