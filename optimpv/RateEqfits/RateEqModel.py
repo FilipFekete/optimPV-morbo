@@ -670,8 +670,12 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
             'dimensionless' : bool, optional
                 whether to use dimensionless variables, by default False
             'timeout' : float, optional
-                maximum time to wait for the solver to finish, by default 120
-
+                maximum time to wait for the solver to finish, by default 90
+            'timeout_solve' : float, optional
+                maximum time to wait for solve_ivp to finish, by default 90
+            'use_jacobian' : bool, optional
+                whether to use the Jacobian, by default True
+            
     Returns
     -------
     list or ndarray
@@ -700,6 +704,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         L = parameters['L']
     else:
         raise ValueError('L is not in the parameters dictionary')
+    
     if 'alpha' in pnames:
         alpha = parameters['alpha']
     else:
@@ -710,6 +715,12 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     Cnnames = [p for p in pnames if 'C_n' in p]
     Cpnames = [p for p in pnames if 'C_p' in p]
     Etrapnames = [p for p in pnames if 'E_t_bulk' in p]
+
+    # check if we are specifying the ratio instead of values of C_ps
+    if len(Cpnames) != len(Cnnames):
+        for p in pnames:
+            if 'ratio_Cnp' in p: # adds C_p names based on the ratio
+                Cpnames.append('C_p_'+p.split('_')[-1])
 
     if len(trapsnames) == 0 or len(Etrapnames) == 0 or len(Cnnames) == 0 or len(Cpnames) == 0 or len(trapsnames) != len(Cnnames) or len(trapsnames) != len(Cpnames) or len(trapsnames) != len(Etrapnames):
         raise ValueError('The parameters dictionary must contain at least one trap with its corresponding C_n, C_p and E_trap values')
@@ -734,9 +745,12 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     N_t_bulk_list, C_n_bulk_list, C_p_bulk_list, E_t_bulk_list = [], [], [], []
     for i in range(len(trapsnames)):
         N_t_bulk_list.append(parameters[trapsnames[i]])
-        C_n_bulk_list.append(parameters[Cnnames[i]])
-        C_p_bulk_list.append(parameters[Cpnames[i]])
         E_t_bulk_list.append(parameters[Etrapnames[i]])
+        C_n_bulk_list.append(parameters[Cnnames[i]])
+        if Cpnames[i] not in parameters.keys(): # check if we are specifying the ratio instead of values of C_ps
+            C_p_bulk_list.append(parameters[Cnnames[i]]/parameters['ratio_Cnp_'+str(i+1)])
+        else:
+            C_p_bulk_list.append(parameters[Cpnames[i]])
     # convert as array
     N_t_bulk_list = np.asarray(N_t_bulk_list)
     C_n_bulk_list = np.asarray(C_n_bulk_list)
@@ -774,12 +788,13 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     # kwargs
     dimentionless = kwargs.get('dimentionless', True)
     grid_size = kwargs.get('grid_size', 100)  # number of grid points
-    timeout = kwargs.get('timeout', 90)
-    method = kwargs.get('method', 'BDF')  # default method for solve_ivp
-    use_jacobian = kwargs.get('use_jacobian', True)
+    timeout = kwargs.get('timeout', 120)
+    timeout_solve = kwargs.get('timeout_solve', 120)
+    method = kwargs.get('method', 'Radau')  # default method for solve_ivp
+    use_jacobian = kwargs.get('use_jacobian', False)
     rtol = kwargs.get('rtol', 1e-3)
     atol = kwargs.get('atol', 1e-6)
-
+    
     # Derived quantities
     ni = np.sqrt(N_c*N_v*np.exp(-Eg/(kb*T))) # intrinsic carrier concentration in m^-3
     p1s = N_v*np.exp(-E_t_bulk_list/(2*kb*T)) 
@@ -978,7 +993,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         t_span = t_span / tau
         D_n = D_n * tau/(L**2)
         D_p = D_p * tau/(L**2)
-        generation = generation * ni * tau
+        generation = generation * tau / ni 
         arg = [k_direct * ni * tau, Eg, N_t_bulk_list/ni, C_n_bulk_list * ni * tau, C_p_bulk_list * ni * tau, E_t_bulk_list, N_c/ni, N_v/ni, T, D_n, D_p, number_of_traps, grid_size, dx]
 
     
@@ -990,20 +1005,27 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         while True:
             # print(f"Equilibrating {count} times ",parameters, 'realChange',np.mean(RealChange))
             # print(time.time()- t_start, np.mean(RealChange))
+            start_time = time.time()
+            def timeout_event(*args):
+                return min(time.time() - start_time - timeout_solve, 0)  # zero when runtime > timeout
+            timeout_event.terminal = True  # stop integration
+            timeout_event.direction = 1
+
             if time.time() - t_start > timeout:
-                logger.warning("Equilibration took too long, stopping.")
+                logger.warning(f"Equilibration took too long, stopping. RealChange mean: {np.mean(RealChange)}")
+
                 return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
 
             if dimentionless:
                 if use_jacobian:
-                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed,)
+                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed, events=timeout_event)
                 else:
-                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span)
+                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span, events=timeout_event)
             else:
                 if use_jacobian:
-                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed,)
+                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed, events=timeout_event)
                 else:
-                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span)
+                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span, events=timeout_event)
 
             if not(sol_single.success):
                 logger.warning("ODE solver did not converge, returning NaN arrays.")
@@ -1040,7 +1062,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     
 
     # Now run the simulation with the right time
-    print("Running the simulation ad",parameters)
+    # print("Running the simulation ad",parameters)
     if dimentionless:
         t = t/ tau
         if use_jacobian:
@@ -1052,7 +1074,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
             sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
         else:
             sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
-    print('done',parameters)
+    # print('done',parameters)
     # if dimentionless:
     #     t = t/ tau
     #     if use_jacobian:
@@ -1071,7 +1093,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     sol_flat = sol.y.reshape(len(P_init), grid_size, -1)
     n_dens = sol_flat[0, :, :].T  # electron density
     p_dens = sol_flat[1, :, :].T  # hole density
-
+   
     if dimentionless:
         n_dens = n_dens * ni
         p_dens = p_dens * ni

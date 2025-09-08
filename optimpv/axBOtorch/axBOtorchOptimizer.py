@@ -27,7 +27,7 @@ from functools import partial
 from optimpv import *
 from optimpv.axBOtorch.axUtils import *
 # from optimpv.axBOtorch.axSchedulerUtils import * # removed for now
-import ax, os, shutil
+import ax, os, shutil, re
 from ax import *
 # from ax.service.ax_client import AxClient
 from ax.generation_strategy.generation_strategy import GenerationStep, GenerationStrategy
@@ -631,8 +631,6 @@ class axBOtorchOptimizer(BaseAgent):
         Raises
         ------
         ValueError
-            Turbo does not support parameter constraints
-        ValueError
             Turbo does not support outcome constraints
         ValueError
             Turbo only supports single objective optimization
@@ -643,7 +641,9 @@ class axBOtorchOptimizer(BaseAgent):
         ValueError
             Turbo only supports BoTorch as the second model
         """            
-
+        device = self.kwargs.get('device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        dtype = self.kwargs.get('dtype', torch.float64)
+        
         parameters_space, fixed_parameters = ConvertParamsAx(self.params)
         objective = self.create_objectives()
 
@@ -666,7 +666,12 @@ class axBOtorchOptimizer(BaseAgent):
         N_CANDIDATES = kwargs_turbo.get('N_CANDIDATES', min(5000, max(2000, 200 * dim)))
 
         if parameter_constraints is not None:
-            raise ValueError('Turbo does not support parameter constraints')
+            inequality_constraints = _parse_inequality_constraints(
+                parameter_constraints, free_pnames, device=device, dtype=dtype
+            )
+        else:
+            inequality_constraints = None
+
         if outcome_constraints is not None:
             raise ValueError('Turbo does not support outcome constraints')  
         
@@ -680,7 +685,7 @@ class axBOtorchOptimizer(BaseAgent):
             fac = -1
         else:
             fac = 1
-
+        
         if self.suggest_only:
             if len(self.models)>1:
                 raise ValueError('Turbo only supports 1 model in suggest_only mode')
@@ -695,8 +700,6 @@ class axBOtorchOptimizer(BaseAgent):
                 raise ValueError('Turbo only supports BoTorch as the second model')
         
         # Set the device and dtype
-        device = self.kwargs.get('device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-        dtype = self.kwargs.get('dtype', torch.float64)
         max_cholesky_size = float("inf")  # Always use Cholesky
         
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
@@ -741,6 +744,8 @@ class axBOtorchOptimizer(BaseAgent):
                     n_pts=self.batch_size[0],
                     device=device,
                     dtype=dtype,
+                    inequality_constraints=inequality_constraints,
+                    bounds=bounds,
                 )
                 
                 # unnormalize
@@ -866,6 +871,8 @@ class axBOtorchOptimizer(BaseAgent):
                                 device=device,
                                 dtype=dtype,
                                 minimize=minimize,
+                                inequality_constraints=inequality_constraints,
+                                bounds=bounds
                             )
                     except Exception as e:
 
@@ -923,6 +930,7 @@ class axBOtorchOptimizer(BaseAgent):
                     # remove nan from Y_next and X_next
                     Y_next = Y_next[~nan_idx]
                     X_next = X_next[~nan_idx]
+
                     if nan_idx.sum() > state.batch_size:
                         raise ValueError("Too many NaN values in Y_next")
                     
@@ -1021,12 +1029,14 @@ class axBOtorchOptimizer(BaseAgent):
                         device=device,
                         dtype=dtype,
                         minimize=minimize,
+                        inequality_constraints=inequality_constraints,
+                        bounds=bounds,
                     )
             except Exception as e:
                 logging_level = 20
                 logger.setLevel(logging_level)
                 logger.error(f"Error in Turbo batch {count_batch}: {e}")
-                logger.error(f"There was an error in the Turbo optimization process, we are stopping the optimization process")
+                logger.error(f"There was an error in the Turbo optimization process, we are stopping the optimization process early.")
                 return
 
             # Evaluate the batch
@@ -1114,7 +1124,7 @@ class axBOtorchOptimizer(BaseAgent):
                 if state.restart_triggered:
                     logger.info('Turbo converged after %d batches with %d trials', count_batch-1, (count_batch-1)*state.batch_size)
                 else:
-                    logger.info('Turbo is terminated as the max number (%d) of trials is reached', total_trials)
+                    logger.info('Turbo is terminated.')
         # if verbose_logging:
         #     logging_level = 20
         #     logger.setLevel(logging_level)
@@ -1134,25 +1144,29 @@ class TurboState:
     success_counter: int = 0
     success_tolerance: int = 3  # Note: The original paper uses 3
     best_value: float = -float("inf")
+    acceleration: float = 1.6 # Note: VLC added this to control how quickly the length scale increases/decreases. Was 2 in the original paper, now 1.6 (~golden ratio)
     restart_triggered: bool = False
+
+    def __post_init__(self):
+        # The original paper uses 4.0 / batch_size, but we use a more robust value
+        # based on the dimension and batch size
+        self.failure_tolerance = math.ceil(
+                max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
+            )
+        
     def __init__(self, dim, batch_size, best_value, **kwargs):
         self.dim = dim
         self.batch_size = batch_size
         self.best_value = best_value
+        self.failure_tolerance = math.ceil(
+                max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
+            )
         for key, value in kwargs.items():
             setattr(self, key, value)
-        # if we do not set the failure_tolerance, we set it to a value based on the batch size and dimension
-        if not hasattr(self, 'failure_tolerance') or self.failure_tolerance is None:
-            # The original paper uses 4.0 / batch_size, but we use a more robust value
-            # based on the dimension and batch size
-            self.failure_tolerance = math.ceil(
-                    max([4.0 / self.batch_size, float(self.dim) / self.batch_size])
-                )
-        
-    # def __post_init__(self):
         
 
-def get_initial_points(dim, n_pts, seed=None, device=None, dtype=None):
+
+def get_initial_points(dim, n_pts, seed=None, device=None, dtype=None, inequality_constraints=None,bounds=None):
     """ Generate initial points using Sobol sequence.
 
     Parameters
@@ -1167,6 +1181,8 @@ def get_initial_points(dim, n_pts, seed=None, device=None, dtype=None):
         Device to use for the generated points, by default None
     dtype : torch.dtype, optional
         Data type of the generated points, by default None
+    inequality_constraints : list of tuples, optional
+        A list of tuples (indices, coefficients, rhs) specifying inequality constraints, by default None
 
     Returns
     -------
@@ -1174,7 +1190,46 @@ def get_initial_points(dim, n_pts, seed=None, device=None, dtype=None):
         Generated points in the range [0, 1]^d
     """    
     sobol = SobolEngine(dimension=dim, scramble=True, seed=seed)
-    X_init = sobol.draw(n_pts).to(dtype=dtype, device=device)
+    
+    if inequality_constraints is None:
+        return sobol.draw(n_pts).to(dtype=dtype, device=device)
+
+    X_init = torch.empty(n_pts, dim, dtype=dtype, device=device)
+    n_found = 0
+    n_total_draws = 0
+    max_draws = n_pts * 10000  # safety break
+    
+    while n_found < n_pts and n_total_draws < max_draws:
+        # draw a batch of points
+        n_to_draw = (n_pts - n_found) * 5 # draw more points to increase efficiency
+        X_cand = sobol.draw(n_to_draw).to(dtype=dtype, device=device)
+
+        # denormalize the candidates to check the constraints
+        X_cand = unnormalize(X_cand, bounds=bounds)
+        n_total_draws += n_to_draw
+
+        # filter out candidates that violate constraints
+        constraint_mask = torch.ones(n_to_draw, dtype=torch.bool, device=device)
+        
+        for indices, coeffs, rhs in inequality_constraints:
+            # print(coeffs,rhs)
+            # print(X_cand[:, indices] )
+            constraint_mask &= (X_cand[:, indices] @ coeffs <= rhs)
+        # print(constraint_mask)
+        X_valid = X_cand[constraint_mask]
+        
+        n_can_add = min(n_pts - n_found, X_valid.shape[0])
+        if n_can_add > 0:
+            X_init[n_found : n_found + n_can_add] = normalize(X_valid[:n_can_add], bounds=bounds) # re-normalize the points
+            n_found += n_can_add
+
+    if n_found < n_pts:
+        print(n_found)
+        raise RuntimeError(
+            f"Could not find {n_pts} initial points satisfying the constraints after drawing {n_total_draws} points. "
+            "The constraints might be too strict or the parameter space too small."
+        )
+
     return X_init
 
 def update_state(state, Y_next):
@@ -1199,6 +1254,7 @@ def update_state(state, Y_next):
     current_best = max(Y_next).item()
     is_success = current_best > state.best_value + 1e-3 * math.fabs(state.best_value)
     state.best_value = max(state.best_value, current_best)
+    acceleration = state.acceleration
     
     if is_success:
         state.success_counter += 1
@@ -1208,10 +1264,10 @@ def update_state(state, Y_next):
         state.failure_counter += 1
 
     if state.success_counter == state.success_tolerance:  # Expand trust region
-        state.length = min(2.0 * state.length, state.length_max)
+        state.length = min(acceleration * state.length, state.length_max)
         state.success_counter = 0
     elif state.failure_counter == state.failure_tolerance:  # Shrink trust region
-        state.length /= 2.0
+        state.length /= acceleration
         state.failure_counter = 0
 
     if state.length < state.length_min:
@@ -1228,6 +1284,8 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
     device=None,
     dtype=None,
     minimize=False,
+    inequality_constraints=None,
+    bounds=None,
 ):
     """ Generate a batch of points using the TURBO algorithm.
     The batch is generated using either Thompson sampling or Expected Improvement.
@@ -1258,6 +1316,8 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
         Data type of the generated points, by default None
     minimize : bool, optional
         Whether to minimize or maximize the function, by default False
+    inequality_constraints : list of tuples, optional
+        A list of tuples (indices, coefficients, rhs) specifying inequality constraints, by default None
 
     Returns
     -------
@@ -1291,7 +1351,6 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
         sobol = SobolEngine(dim, scramble=True, )#seed=np.random.randint(10000))
         pert = sobol.draw(n_candidates).to(dtype=dtype, device=device)
         pert = tr_lb + (tr_ub - tr_lb) * pert
-
         # Create a perturbation mask
         prob_perturb = min(20.0 / dim, 1.0)
         mask = torch.rand(n_candidates, dim, dtype=dtype, device=device) <= prob_perturb
@@ -1302,6 +1361,24 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
         X_cand = x_center.expand(n_candidates, dim).clone()
         X_cand[mask] = pert[mask]
 
+        if inequality_constraints is not None:
+            # filter out candidates that violate constraints
+            constraint_mask = torch.ones(n_candidates, dtype=torch.bool, device=device)
+            X_cand = unnormalize(X_cand, bounds=bounds)
+            for indices, coeffs, rhs in inequality_constraints:
+                constraint_mask &= (X_cand[:, indices] @ coeffs <= rhs)
+            X_cand = X_cand[constraint_mask]
+            if X_cand.shape[0] < batch_size:
+                logger.warning(
+                    f"Reduced candidate size from {constraint_mask.shape[0]} to {X_cand.shape[0]} due to constraints. "
+                    f"This may lead to suboptimal results. Consider increasing n_candidates."
+                )
+                if X_cand.shape[0] == 0:
+                    raise RuntimeError(
+                        "No candidates left after applying constraints. "
+                        "Your trust region might be too small or your constraints too strict."
+                    )
+            X_cand = normalize(X_cand, bounds=bounds)
         # Sample from the posterior
         thompson_sampling = MaxPosteriorSampling(model=model, replacement=False)
             
@@ -1329,8 +1406,63 @@ def generate_batch(state, model, X,  # Evaluated points on the domain [0, 1]^d
             num_restarts=num_restarts,
             raw_samples=raw_samples,
             options={"batch_limit": 5, "maxiter": 200},
+            inequality_constraints=inequality_constraints,
         )
     else:
         raise ValueError(f"Unknown acquisition function type: {acqf}")
 
     return X_next
+
+def _parse_inequality_constraints(constraints, param_names, device=None, dtype=None):
+    """Parse inequality constraints from strings to botorch format."""
+    inequality_constraints = []
+    param_map = {name: i for i, name in enumerate(param_names)}
+    
+    for c in constraints:
+        if "<=" in c:
+            parts = c.split("<=")
+            op = "<="
+        elif ">=" in c:
+            parts = c.split(">=")
+            op = ">="
+        else:
+            raise ValueError(f"Invalid constraint string: {c}")
+
+        lhs, rhs_str = parts[0].strip(), parts[1].strip()
+        rhs = float(rhs_str)
+
+        # very simple parser for linear constraints
+        # handles "p1", "-p1", "c * p1", "p1 + p2", "p1 - c * p2", etc.
+        pattern = r"([+\-]?)\s*([\d\.]*)\s*\*?\s*(\w+)"
+        terms = re.findall(pattern, lhs)
+        
+        indices = []
+        coeffs = []
+
+        for sign, coeff_str, name in terms:
+            if name not in param_map:
+                raise ValueError(f"Unknown parameter '{name}' in constraint '{c}'")
+            
+            indices.append(param_map[name])
+            
+            if coeff_str == "":
+                coeff = 1.0
+            else:
+                coeff = float(coeff_str)
+            
+            if sign == "-":
+                coeff *= -1.0
+            
+            coeffs.append(coeff)
+
+        indices = torch.tensor(indices, device=device, dtype=torch.long)
+        coeffs = torch.tensor(coeffs, device=device, dtype=dtype)
+
+        if op == ">=":
+            # Convert >= to <=
+            coeffs *= -1
+            rhs *= -1
+
+        inequality_constraints.append((indices, coeffs, rhs))
+        
+    return inequality_constraints

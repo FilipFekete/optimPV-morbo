@@ -226,7 +226,10 @@ class JVAgent(SIMsalabimAgent):
         self.compare_type = self.kwargs.get('compare_type', 'linear')
         if 'compare_type' in self.kwargs.keys():
             self.kwargs.pop('compare_type')
-            
+        self.do_G_frac_transform = self.kwargs.get('do_G_frac_transform', False)
+        if 'do_G_frac_transform' in self.kwargs.keys():
+            self.kwargs.pop('do_G_frac_transform')
+   
         # Validate compare_type
         if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
             raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
@@ -360,7 +363,8 @@ class JVAgent(SIMsalabimAgent):
                     yfit, 
                     X=self.X[i],
                     X_pred=Xfit,
-                    transform_type=self.compare_type
+                    transform_type=self.compare_type,
+                    do_G_frac_transform=self.do_G_frac_transform
                 )
                 
                 # Calculate metric with transformed data
@@ -399,7 +403,8 @@ class JVAgent(SIMsalabimAgent):
                         yfit, 
                         X=self.tracking_X[j],
                         X_pred=Xfit,
-                        transform_type=self.compare_type
+                        transform_type=self.compare_type,
+                        do_G_frac_transform=self.do_G_frac_transform
                     )
                     
                     # Calculate metric with transformed data

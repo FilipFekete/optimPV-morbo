@@ -81,6 +81,11 @@ class DiodeAgent(BaseAgent):
                 name = 'diode', use_pvlib = False, **kwargs):
         # super().__init__(**kwargs)
 
+        if not isinstance(X, (list, tuple)):
+            X = [np.asarray(X)]
+        if not isinstance(y, (list, tuple)):
+            y = [np.asarray(y)]
+
         self.params = params
         self.X = X # voltage and Gfrac
         self.y = y
@@ -257,20 +262,21 @@ class DiodeAgent(BaseAgent):
             T_ = parameters['T']
 
         parameters_rescaled = self.params_rescale(parameters, self.params)
-        
-        if self.use_pvlib and got_pvlib:
-            print('Using pvlib to calculate diode equation')
-            nVt = parameters_rescaled['n']*kb*T_
-            if self.exp_format[0] == 'dark':
-                J = -i_from_v(self.X, 0, parameters_rescaled['J0'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], nVt)
-            elif self.exp_format[0] == 'light':
-                J = -i_from_v(self.X, parameters_rescaled['Jph'], parameters_rescaled['J0'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], nVt)
-        else:
-            if self.exp_format[0] == 'dark':
-                J = NonIdealDiode_dark(self.X, parameters_rescaled['J0'], parameters_rescaled['n'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], T = T_)
+        J = []
+        for idx, exp_fmt in enumerate(self.exp_format):
+            if self.use_pvlib and got_pvlib:
+                print('Using pvlib to calculate diode equation')
+                nVt = parameters_rescaled['n']*kb*T_
+                if exp_fmt == 'dark':
+                    J.extend(-i_from_v(self.X[idx], 0, parameters_rescaled['J0'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], nVt))
+                elif exp_fmt == 'light':
+                    J.extend(-i_from_v(self.X[idx], parameters_rescaled['Jph'], parameters_rescaled['J0'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], nVt))
+            else:
+                if exp_fmt == 'dark':
+                    J.extend(NonIdealDiode_dark(self.X[idx], parameters_rescaled['J0'], parameters_rescaled['n'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], T = T_))
 
-            elif self.exp_format[0] == 'light':
-                J = NonIdealDiode_light(self.X, parameters_rescaled['J0'], parameters_rescaled['n'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], parameters_rescaled['Jph'], T = T_)
+                elif exp_fmt == 'light':
+                    J.extend(NonIdealDiode_light(self.X[idx], parameters_rescaled['J0'], parameters_rescaled['n'], parameters_rescaled['R_series'], parameters_rescaled['R_shunt'], parameters_rescaled['Jph'], T = T_))
 
         return J
     
@@ -288,62 +294,59 @@ class DiodeAgent(BaseAgent):
         float
             Loss function value.
         """    
-        
-        if self.exp_format[0] == 'light':   
-            self.compare_logs = self.kwargs.get('compare_logs',False)
-        else:
-            self.compare_logs = self.kwargs.get('compare_logs',True)
-        
+                
         yfit = self.run(parameters) # run the diode model
-
         dum_dict = {}
         
+         # Calculate metrics for each experimental format
         for i in range(len(self.exp_format)):
-            metric_name = self.metric[i]
-            
-            # Apply data transformation based on compare_type
-            if self.compare_type == 'linear' and self.compare_logs:
-                epsilon = np.finfo(np.float64).eps
-                # if 0 in yfit, then add epsilon to avoid log(0)
-                yfit_trans = yfit.copy()
-                yfit_trans[abs(yfit_trans) <= epsilon] = epsilon
-                y_trans = copy.deepcopy(self.y)
-                y_trans[abs(y_trans) <= epsilon] = epsilon
-                
-                metric_value = calc_metric(np.log10(abs(y_trans)), np.log10(abs(yfit_trans)), 
-                                          sample_weight=self.weight[i], metric_name=metric_name)
-            elif self.compare_type != 'linear':
-                # Use the transform_data function for non-linear transforms
-                y_trans, yfit_trans = transform_data(
-                    self.y, yfit, transform_type=self.compare_type
-                )
-                metric_value = calc_metric(y_trans, yfit_trans, 
-                                          sample_weight=self.weight[i], metric_name=metric_name)
+            # Transform both true and predicted values together using the enhanced function
+            # Pass both X values as well for future extensibility
+            if self.compare_type == 'linear':
+                metric_value = calc_metric(
+                self.y[i],
+                yfit,
+                sample_weight=self.weight[i], 
+                metric_name=self.metric[i]
+            )
             else:
-                # Standard linear comparison
-                metric_value = calc_metric(self.y, yfit, 
-                                          sample_weight=self.weight[i], metric_name=metric_name)
+                y_true_transformed, y_pred_transformed = transform_data(
+                    self.y[i], 
+                    yfit, 
+                    X=self.X[i],
+                    transform_type=self.compare_type,
+                )
             
+                # Calculate metric with transformed data
+                metric_value = calc_metric(
+                    y_true_transformed, 
+                    y_pred_transformed, 
+                    sample_weight=self.weight[i], 
+                    metric_name=self.metric[i]
+                )
             dum_dict[self.all_agent_metrics[i]] = loss_function(metric_value, loss=self.loss[i])
-            
-            # Calculate tracking metrics if they exist
+            # Calculate tracking metrics if they exist            
             if self.tracking_metric is not None:
-                for j in range(len(self.all_agent_tracking_metrics)):
-                    if self.tracking_exp_format[j] == self.exp_format[i]:
-                        tracking_metric_name = self.tracking_metric[j]
-                        
-                        # Apply the same transform as the main metric
-                        if self.compare_type == 'linear' and self.compare_logs:
-                            tracking_metric_value = calc_metric(np.log10(abs(y_trans)), np.log10(abs(yfit_trans)), 
-                                                             sample_weight=self.tracking_weight[j], metric_name=tracking_metric_name)
-                        elif self.compare_type != 'linear':
-                            tracking_metric_value = calc_metric(y_trans, yfit_trans, 
-                                                             sample_weight=self.tracking_weight[j], metric_name=tracking_metric_name)
-                        else:
-                            tracking_metric_value = calc_metric(self.tracking_y[j], yfit, 
-                                                             sample_weight=self.tracking_weight[j], metric_name=tracking_metric_name)
-                        
-                        dum_dict[self.all_agent_tracking_metrics[j]] = loss_function(
-                            tracking_metric_value, loss=self.tracking_loss[j])
+                for j in range(len(self.tracking_metric)):
+                    exp_fmt = self.tracking_exp_format[j]
+                    metric_name = self.tracking_metric[j]
+                    loss_type = self.tracking_loss[j]
+                    
+                    # Transform data once for each format
+                    y_true_transformed, y_pred_transformed = transform_data(
+                        self.tracking_y[j], 
+                        yfit, 
+                        X=self.tracking_X[j],
+                        transform_type=self.compare_type,
+                    )
+                    
+                    metric_value = calc_metric(
+                        y_true_transformed, 
+                        y_pred_transformed, 
+                        sample_weight=self.tracking_weight[j], 
+                        metric_name=metric_name
+                    )
+                    
+                    dum_dict[self.all_agent_tracking_metrics[j]] = loss_function(metric_value, loss=loss_type)
 
         return dum_dict

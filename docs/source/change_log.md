@@ -2,6 +2,16 @@ Change Log
 ==========
 All notable changes to this project will be documented in this file.
 
+v1.04 - 2025-09-08 - VMLC-PV
+-----------------------------
+- DiodeAgent: Updated the code to use the transform_data function to make it consistent with the other Agents.
+- JVAgent, RateEqAgent general: modified the transform_data function to make the transformation based on the G_frac when needed for the JVAgent and the RateEqAgent. In those cases, the G_frac column is assumed to be the second column of the X array. 
+- axBOtorchOptimizer: Added support for inequality constraints in optimize_turbo. I also added an acceleration parameter to the TurboState to control the expansion or contraction of the trust region. In the original paper, it is set to 2, and I now set it to 1.6 (i.e. roughly the Golden ratio).
+- RateEqAgent: Added the possibility to use the ratio between C_n and C_p instead of using C_p as a fitting parameter. The new parameter is called ratio_Cnp and is defined such that ratio_Cnp = C_n/C_p. 
+- Data: Added some new experimental data for testing the RateEqAgent and the DBTD_multi_trap model based on the work by Maxim Simmonds (HZB) and the repository [MAPI-FAPI-fitting](https://github.com/MaximSimmonds-HZB/MAPI-FAPI-fitting).
+
+
+
 v1.03 - 2025-08-14 - VMLC-PV
 -----------------------------
 - Upgrading the ax-platform version to 1.0.0.

@@ -6,19 +6,22 @@ import numpy as np
 import pandas as pd
 from scipy import interpolate, constants
 
-# try: 
-#     import pvlib
-#     from pvlib.pvsystem import i_from_v
-#     got_pvlib = True
-# except:
-#     got_pvlib = False
-#     warnings.warn('pvlib not installed, using scipy for diode equation')
-
 from optimpv import *
 from optimpv.general.general import calc_metric, loss_function, transform_data
 from optimpv.general.BaseAgent import BaseAgent
 from optimpv.RateEqfits.RateEqModel import *
 from optimpv.RateEqfits.Pumps import *
+
+from logging import Logger
+
+from optimpv.general.logger import get_logger, _round_floats_for_logging
+
+logger: Logger = get_logger('RateEqModel')
+ROUND_FLOATS_IN_LOGS_TO_DECIMAL_PLACES: int = 6
+round_floats_for_logging = partial(
+    _round_floats_for_logging,
+    decimal_places=ROUND_FLOATS_IN_LOGS_TO_DECIMAL_PLACES,
+)
 
 ## Physics constants
 q = constants.value(u'elementary charge')
@@ -241,7 +244,10 @@ class RateEqAgent(BaseAgent):
         self.compare_type = self.kwargs.get('compare_type', 'linear')
         if 'compare_type' in self.kwargs.keys():
             self.kwargs.pop('compare_type')
-            
+        self.do_G_frac_transform = self.kwargs.get('do_G_frac_transform', False)
+        if 'do_G_frac_transform' in self.kwargs.keys():
+            self.kwargs.pop('do_G_frac_transform')
+   
         # Validate compare_type
         if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
             raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
@@ -351,34 +357,42 @@ class RateEqAgent(BaseAgent):
                     N0 = 0
 
                 ns_, ps_ = self.model(parameters, t, Generation, t_span, N0 = N0, equilibrate = self.equilibrate, G_frac = Gfrac, **self.kwargs)
-                
+
                 if ns is None:
                     ns = ns_
                     ps = ps_
                     t_list = t
                     Gfrac_list = np.ones(len(t))*Gfrac
                 else:
-                    ns = np.hstack((ns,ns_))
-                    ps = np.hstack((ps,ps_))
+                    if ns_.ndim == 1:
+                        print('Here')
+                        ns = np.hstack((ns,ns_))
+                        ps = np.hstack((ps,ps_))
+                    else:
+                        ns = np.vstack((ns,ns_))
+                        ps = np.vstack((ps,ps_))
                     t_list = np.hstack((t_list,t))
                     Gfrac_list = np.hstack((Gfrac_list,np.ones(len(t))*Gfrac))
-
+        
         dum_dict = {}
-        dum_dict['n'] = ns
-        dum_dict['p'] = ps
+        dum_dict['n'] = list(ns)
+        dum_dict['p'] = list(ps)
         if Gfracs is None:
             dum_dict['t'] = t
             dum_dict['G_frac'] = Gfrac_list
         else:
             dum_dict['t'] = t_list
             dum_dict['G_frac'] = Gfrac_list
-
+        
+        dum_dict
         try:
             df = pd.DataFrame(dum_dict)
         except:
-            print(parameters)
+            lines = ''
             for key in dum_dict.keys():
-                print(key,len(dum_dict[key]))
+                lines += f"{key}: {len(dum_dict[key])}, "
+            logger.error(f"The simulation failed for {parameters}\n{lines}")
+
             return np.nan
 
         return df
@@ -753,7 +767,8 @@ class RateEqAgent(BaseAgent):
                     yfit, 
                     X=self.X[i],
                     X_pred=Xfit,
-                    transform_type=self.compare_type
+                    transform_type=self.compare_type,
+                    do_G_frac_transform=self.do_G_frac_transform
                 )
             
                 # Calculate metric with transformed data
@@ -780,7 +795,8 @@ class RateEqAgent(BaseAgent):
                     yfit, 
                     X=self.tracking_X[j],
                     X_pred=Xfit,
-                    transform_type=self.compare_type
+                    transform_type=self.compare_type,
+                    do_G_frac_transform=self.do_G_frac_transform
                 )
                 
                 metric_value = calc_metric(
