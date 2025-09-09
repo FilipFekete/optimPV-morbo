@@ -819,7 +819,7 @@ class axBOtorchOptimizer(BaseAgent):
             if verbose_logging:
                 logging_level = 20
                 logger.setLevel(logging_level)
-                logger.info('Finished Sobol')
+                logger.info('Finished Sobol with best value of %f', max(fac*Y_turbo).item())
         
         if not self.suggest_only:
             # Create a new state for each batch

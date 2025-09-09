@@ -354,7 +354,6 @@ def transform_data(y, y_pred, X=None, X_pred=None, transform_type='linear', epsi
                 mask = X[:, 1] == G
                 y_transformed[mask] = np.abs(y_transformed[mask])
                 y_transformed[mask][y_transformed[mask] <= 0] = epsilon
-
                 y_pred_transformed[mask] = np.abs(y_pred_transformed[mask])
                 y_pred_transformed[mask][y_pred_transformed[mask] <= 0] = epsilon
                 y_transformed[mask] = np.log10(y_transformed[mask])
@@ -363,18 +362,27 @@ def transform_data(y, y_pred, X=None, X_pred=None, transform_type='linear', epsi
         elif transform_type.lower() == 'normalized':
             for G in Gfracs:
                 mask = X[:, 1] == G
-                max_val = max(np.max(np.abs(y_transformed[mask])), np.max(np.abs(y_pred_transformed[mask])))
-                if max_val > 0:  # Avoid division by zero
-                    y_transformed[mask] = y_transformed[mask] / max_val
-                    y_pred_transformed[mask] = y_pred_transformed[mask] / max_val
+                if np.max(y_transformed[mask]) > 0:
+                    y_transformed[mask] = y_transformed[mask] / np.max(y_transformed[mask])
+                else:
+                    return np.nan * np.ones_like(y_transformed), np.nan * np.ones_like(y_pred_transformed)
+                if np.max(y_pred_transformed[mask]) > 0:
+                    y_pred_transformed[mask] = y_pred_transformed[mask] / np.max(y_pred_transformed[mask])
+                else:
+                    return np.nan * np.ones_like(y_transformed), np.nan * np.ones_like(y_pred_transformed)
             return y_transformed, y_pred_transformed
         elif transform_type.lower() == 'normalized_log':
+
             for G in Gfracs:
                 mask = X[:, 1] == G
-                max_val = max(np.max(np.abs(y_transformed[mask])), np.max(np.abs(y_pred_transformed[mask])))
-                if max_val > 0:  # Avoid division by zero
-                    y_transformed[mask] = y_transformed[mask] / max_val
-                    y_pred_transformed[mask] = y_pred_transformed[mask] / max_val
+                y_transformed[mask] = np.abs(y_transformed[mask])
+                y_transformed[mask][y_transformed[mask] <= 0] = epsilon
+                y_pred_transformed[mask] = np.abs(y_pred_transformed[mask])
+                y_pred_transformed[mask][y_pred_transformed[mask] <= 0] = epsilon
+                y_transformed[mask] = y_transformed[mask] / np.max(y_transformed[mask])
+                y_pred_transformed[mask] = y_pred_transformed[mask] / np.max(y_pred_transformed[mask])
+                y_transformed[mask] = np.log10(y_transformed[mask]) 
+                y_pred_transformed[mask] = np.log10(y_pred_transformed[mask])
             return y_transformed, y_pred_transformed
         else:
             raise ValueError(f'The transformation type {transform_type} is not implemented.')

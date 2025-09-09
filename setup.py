@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="optimpv", 
-    version="v1.03",
+    version="v1.04",
     author="Vincent M. Le Corre",
     author_email="",
     description="optimPV: Optimization & Modeling tools for PV research",
@@ -13,7 +13,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     license='GPLv3',
     url="https://github.com/openPV-lab/optimPV",
-    download_url="https://github.com/openPV-lab/optimPV/v1.03.tar.gz",
+    download_url="https://github.com/openPV-lab/optimPV/v1.04.tar.gz",
     packages=setuptools.find_packages(),
     readme = "README.md",
     keywords=['Bayesian optimization', 'Evolutionary optimization','parameter extraction', 'experimental design', 'high throughput', 'solar cells'],

@@ -786,12 +786,14 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         T = 300
 
     # kwargs
-    dimentionless = kwargs.get('dimentionless', True)
+    dimentionless = kwargs.get('dimentionless', False)
     grid_size = kwargs.get('grid_size', 100)  # number of grid points
-    timeout = kwargs.get('timeout', 120)
-    timeout_solve = kwargs.get('timeout_solve', 120)
-    method = kwargs.get('method', 'Radau')  # default method for solve_ivp
+    timeout = kwargs.get('timeout', 60)
+    timeout_solve = kwargs.get('timeout_solve', 60)
+    method = kwargs.get('method', 'LSODA')  # default method for solve_ivp
     use_jacobian = kwargs.get('use_jacobian', False)
+    if method == 'LSODA':
+        use_jacobian = False
     rtol = kwargs.get('rtol', 1e-3)
     atol = kwargs.get('atol', 1e-6)
     
@@ -940,7 +942,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
             # Electron and hole eqns derivatives w.r.t trap populations (diagonal only)
             J[idx_n, idx_trap] = Bn[j] * n + Bn[j] * exp_e[j]
             J[idx_p, idx_trap] = -Bp[j] * p - Bp[j] * exp_h[j]
-
+        
         return J.tocsc()
 
     def model_vect_dimensionless(t, P_flat_d, kdirect, Eg, Bulk_tr_d, Bn, Bp, ETrap, Nc_d, Nv_d, T, D_n, D_p, number_of_traps, grid_size, dz):
@@ -1000,119 +1002,120 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     t_start = time.time()
     count = 0
     
-    # try:
-    if equilibrate:
-        while True:
-            # print(f"Equilibrating {count} times ",parameters, 'realChange',np.mean(RealChange))
-            # print(time.time()- t_start, np.mean(RealChange))
-            start_time = time.time()
-            def timeout_event(*args):
-                return min(time.time() - start_time - timeout_solve, 0)  # zero when runtime > timeout
-            timeout_event.terminal = True  # stop integration
-            timeout_event.direction = 1
+    try:
+        if equilibrate:
+            while True:
+                # print(f"Equilibrating {count} times ",parameters, 'realChange',np.mean(RealChange))
+                # print(time.time()- t_start, np.mean(RealChange))
+                start_time = time.time()
+                def timeout_event(*args):
+                    return min(time.time() - start_time - timeout_solve, 0)  # zero when runtime > timeout
+                timeout_event.terminal = True  # stop integration
+                timeout_event.direction = 1
 
-            if time.time() - t_start > timeout:
-                logger.warning(f"Equilibration took too long, stopping. RealChange mean: {np.mean(RealChange)}")
+                if time.time() - t_start > timeout:
+                    logger.warning(f"Equilibration took too long, stopping. RealChange mean: {np.mean(RealChange)}, Parameters: {parameters}")
 
-                return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
-
-            if dimentionless:
-                if use_jacobian:
-                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed, events=timeout_event)
-                else:
-                    sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span, events=timeout_event)
-            else:
-                if use_jacobian:
-                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed, events=timeout_event)
-                else:
-                    sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span, events=timeout_event)
-
-            if not(sol_single.success):
-                logger.warning("ODE solver did not converge, returning NaN arrays.")
-                return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
-
-            sol_flat = sol_single.y.reshape(len(P_init), grid_size, -1)
-            n_last = sol_flat[0, :, -1]
-            p_last = sol_flat[1, :, -1]
-            # Inject fresh carriers
-            n_next = n_last + n0_z
-            p_next = p_last + n0_z
-            # Update initial condition for next iteration
-            P0[:grid_size] = n_next
-            P0[grid_size:2*grid_size] = p_next
-            for j in range(len(N_t_bulk_list)):
-                u = j+2
-                P0[u*grid_size:(u+1)*grid_size] = sol_flat[u,:,-1]
-
-            new_end = n_last#(sol_flat[:,0,-1])
-            RealChange  = abs((new_end - end_point)/end_point) # relative change of mean
-            end_point = new_end
-            count += 1
-            # print(f'Equilibrating: {count} iterations, Relative Change: {np.max(abs(RealChange))}', parameters)
-            # if np.mean(RealChange) < eq_limit and not np.all(abs(RealChange) < eq_limit):
-            #     # count number of false in np.all(abs(RealChange)
-            #     false_count = np.sum(~np.all(abs(RealChange) < eq_limit))
-            #     print(false_count, 'points not yet converged in count', count)
-            if np.all(abs(RealChange) < eq_limit) or count > maxcount or np.sum(diff == 0):
-                if count > maxcount:
-                    logger.warning("Equilibration did not converge within the maximum number of iterations.")
                     return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
-                
-                break
-    
 
-    # Now run the simulation with the right time
-    # print("Running the simulation ad",parameters)
-    if dimentionless:
-        t = t/ tau
-        if use_jacobian:
-            sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+                if dimentionless:
+                    if use_jacobian:
+                        sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed, events=timeout_event)
+                    else:
+                        sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span, events=timeout_event)
+                else:
+                    if use_jacobian:
+                        sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed, events=timeout_event)
+                    else:
+                        sol_single = solve_ivp(model_vect, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span, events=timeout_event)
+
+                if not(sol_single.success):
+                    logger.warning("ODE solver did not converge, returning NaN arrays.")
+                    return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
+
+                sol_flat = sol_single.y.reshape(len(P_init), grid_size, -1)
+                n_last = sol_flat[0, :, -1]
+                p_last = sol_flat[1, :, -1]
+                # Inject fresh carriers
+                n_next = n_last + n0_z
+                p_next = p_last + n0_z
+                # Update initial condition for next iteration
+                P0[:grid_size] = n_next
+                P0[grid_size:2*grid_size] = p_next
+                for j in range(len(N_t_bulk_list)):
+                    u = j+2
+                    P0[u*grid_size:(u+1)*grid_size] = sol_flat[u,:,-1]
+
+                new_end = n_last#(sol_flat[:,0,-1])
+                RealChange  = abs((new_end - end_point)/end_point) # relative change of mean
+                end_point = new_end
+                count += 1
+                # print(f'Equilibrating: {count} iterations, Relative Change: {np.max(abs(RealChange))}', parameters)
+                # if np.mean(RealChange) < eq_limit and not np.all(abs(RealChange) < eq_limit):
+                #     # count number of false in np.all(abs(RealChange)
+                #     false_count = np.sum(~np.all(abs(RealChange) < eq_limit))
+                #     print(false_count, 'points not yet converged in count', count)
+                if np.all(abs(RealChange) < eq_limit) or count > maxcount or np.sum(diff == 0):
+                    if count > maxcount:
+                        logger.warning(f"Equilibration did not converge within the maximum number of iterations.")
+                        return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
+                    
+                    break
+        
+
+        # Now run the simulation with the right time
+        # print("Running the simulation ad",parameters)
+        if dimentionless:
+            t = t/ tau
+            if use_jacobian:
+                sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+            else:
+                sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
         else:
-            sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
-    else:
-        if use_jacobian:
-            sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+            if use_jacobian:
+                sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+            else:
+                sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
+        # print('done',parameters)
+        # if dimentionless:
+        #     t = t/ tau
+        #     if use_jacobian:
+        #         sol = solve_ivp(model_vect_dimensionless, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+        #     else:
+        #         sol = solve_ivp(model_vect_dimensionless, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
+        # else:
+        #     if use_jacobian:
+        #         sol = solve_ivp(model_vect, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
+        #     else:
+        #         sol = solve_ivp(model_vect, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
+        if not(sol.success):
+            logger.warning("ODE solver did not converge, returning NaN arrays.")
+            return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
+        
+        sol_flat = sol.y.reshape(len(P_init), grid_size, -1)
+        n_dens = sol_flat[0, :, :].T  # electron density
+        p_dens = sol_flat[1, :, :].T  # hole density
+    
+        if dimentionless:
+            n_dens = n_dens * ni
+            p_dens = p_dens * ni
+
+        if output_integrated_values:
+            n_dens = (n_dens[:, 1:]+ n_dens[:, :-1])/2
+            p_dens = (p_dens[:, 1:]+ p_dens[:, :-1])/2
+
+            # convert ndens into a list of arrays
+            n_list = []
+            p_list = []
+            for i in range(len(t)):
+                n_list.append(n_dens[i])
+                p_list.append(p_dens[i])
+
+            return n_list, p_list
         else:
-            sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
-    # print('done',parameters)
-    # if dimentionless:
-    #     t = t/ tau
-    #     if use_jacobian:
-    #         sol = solve_ivp(model_vect_dimensionless, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
-    #     else:
-    #         sol = solve_ivp(model_vect_dimensionless, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
-    # else:
-    #     if use_jacobian:
-    #         sol = solve_ivp(model_vect, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
-    #     else:
-    #         sol = solve_ivp(model_vect, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
-    if not(sol.success):
-        logger.warning("ODE solver did not converge, returning NaN arrays.")
+            return n_dens, p_dens
+    except Exception as e:
+        print(e)
+        print("An error occurred during the simulation: {}".format(e))
         return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
-    
-    sol_flat = sol.y.reshape(len(P_init), grid_size, -1)
-    n_dens = sol_flat[0, :, :].T  # electron density
-    p_dens = sol_flat[1, :, :].T  # hole density
-   
-    if dimentionless:
-        n_dens = n_dens * ni
-        p_dens = p_dens * ni
 
-    if output_integrated_values:
-        n_dens = (n_dens[:, 1:]+ n_dens[:, :-1])/2
-        p_dens = (p_dens[:, 1:]+ p_dens[:, :-1])/2
-
-        # convert ndens into a list of arrays
-        n_list = []
-        p_list = []
-        for i in range(len(t)):
-            n_list.append(n_dens[i])
-            p_list.append(p_dens[i])
-
-        return n_list, p_list
-    else:
-        return n_dens, p_dens
-    # except Exception as e:
-    #     print(e)
-    #     print("An error occurred during the simulation: {}".format(e))
-    #     return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))

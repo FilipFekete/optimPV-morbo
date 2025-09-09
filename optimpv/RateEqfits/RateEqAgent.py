@@ -310,6 +310,7 @@ class RateEqAgent(BaseAgent):
         if Gfracs is not None:
             Gfracs = np.asarray(Gfracs)    
         ns, ps = None, None
+
         if Gfracs is None:
             t = self.X[0] # time axis should be the same for all elements
             tmax = 0.99999*1/self.pump_args['fpu'] # maximum time for the pump
@@ -357,22 +358,28 @@ class RateEqAgent(BaseAgent):
                     N0 = 0
 
                 ns_, ps_ = self.model(parameters, t, Generation, t_span, N0 = N0, equilibrate = self.equilibrate, G_frac = Gfrac, **self.kwargs)
+                if type(ns_) is list:
+                    ns_ = np.asarray(ns_)
+                    ps_ = np.asarray(ps_)
 
-                if ns is None:
-                    ns = ns_
-                    ps = ps_
-                    t_list = t
-                    Gfrac_list = np.ones(len(t))*Gfrac
-                else:
-                    if ns_.ndim == 1:
-                        print('Here')
-                        ns = np.hstack((ns,ns_))
-                        ps = np.hstack((ps,ps_))
+                try:                   
+                    if ns is None:
+                        ns = ns_
+                        ps = ps_
+                        t_list = t
+                        Gfrac_list = np.ones(len(t))*Gfrac
                     else:
-                        ns = np.vstack((ns,ns_))
-                        ps = np.vstack((ps,ps_))
-                    t_list = np.hstack((t_list,t))
-                    Gfrac_list = np.hstack((Gfrac_list,np.ones(len(t))*Gfrac))
+                        if type(ns_) is list:
+                            ns = np.hstack((ns,ns_))
+                            ps = np.hstack((ps,ps_))
+                        else:
+                            ns = np.vstack((ns,ns_))
+                            ps = np.vstack((ps,ps_))
+                        t_list = np.hstack((t_list,t))
+                        Gfrac_list = np.hstack((Gfrac_list,np.ones(len(t))*Gfrac))
+                except Exception as e:
+                    logger.error(f"The simulation failed for {parameters}\n{e}")
+                    return np.nan
         
         dum_dict = {}
         dum_dict['n'] = list(ns)
@@ -384,10 +391,10 @@ class RateEqAgent(BaseAgent):
             dum_dict['t'] = t_list
             dum_dict['G_frac'] = Gfrac_list
         
-        dum_dict
         try:
             df = pd.DataFrame(dum_dict)
         except:
+            dum_dict = {}
             lines = ''
             for key in dum_dict.keys():
                 lines += f"{key}: {len(dum_dict[key])}, "
