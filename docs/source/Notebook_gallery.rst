@@ -18,6 +18,7 @@ All notebooks
    ../examples/MO_trPL_trMC.ipynb
    ../examples/MO_trPL_trMC_pymoo.ipynb
    ../examples/TrPL_diff.ipynb
+   ../examples/TrPL_diff_multi_trap_constraint.ipynb
    ../examples/TAS.ipynb
    ../examples/TAS_BayesInf.ipynb
    ../examples/diode.ipynb
