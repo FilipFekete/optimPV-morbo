@@ -7,7 +7,8 @@ v1.04 - 2025-09-08 - VMLC-PV
 - DiodeAgent: Updated the code to use the transform_data function to make it consistent with the other Agents.
 - JVAgent, RateEqAgent general: modified the transform_data function to make the transformation based on the G_frac when needed for the JVAgent and the RateEqAgent. In those cases, the G_frac column is assumed to be the second column of the X array. 
 - axBOtorchOptimizer: Added support for inequality constraints in optimize_turbo. I also added an acceleration parameter to the TurboState to control the expansion or contraction of the trust region. In the original paper, it is set to 2, and I now set it to 1.6 (i.e. roughly the Golden ratio).
-- RateEqAgent: Added the possibility to use the ratio between C_n and C_p instead of using C_p as a fitting parameter. The new parameter is called ratio_Cnp and is defined such that ratio_Cnp = C_n/C_p. 
+- RateEqAgent: Added the possibility to use the ratio between C_n and C_p instead of using C_p as a fitting parameter. The new parameter is called ratio_Cnp and is defined such that ratio_Cnp = C_n/C_p.  
+Added support for parallelization using joblib to run the different G_frac in parallel. This can significantly speed up the fitting process when multiple G_frac are used. The number of parallel jobs can be controlled using the max_jobs parameter.
 - Data: Added some new experimental data for testing the RateEqAgent and the DBTD_multi_trap model based on the work by Maxim Simmonds (HZB) and the repository [MAPI-FAPI-fitting](https://github.com/MaximSimmonds-HZB/MAPI-FAPI-fitting).
 
 

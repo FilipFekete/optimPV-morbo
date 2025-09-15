@@ -786,12 +786,12 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         T = 300
 
     # kwargs
-    dimentionless = kwargs.get('dimentionless', False)
+    dimensionless = kwargs.get('dimensionless', True)
     grid_size = kwargs.get('grid_size', 100)  # number of grid points
     timeout = kwargs.get('timeout', 60)
     timeout_solve = kwargs.get('timeout_solve', 60)
-    method = kwargs.get('method', 'LSODA')  # default method for solve_ivp
-    use_jacobian = kwargs.get('use_jacobian', False)
+    method = kwargs.get('method', 'BDF')  # default method for solve_ivp
+    use_jacobian = kwargs.get('use_jacobian', True)
     if method == 'LSODA':
         use_jacobian = False
     rtol = kwargs.get('rtol', 1e-3)
@@ -983,7 +983,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         
     RealChange,diff = 1e40,1e40 # artificially large to start with
     end_point = 1e-20
-    if dimentionless:
+    if dimensionless:
         n0_z = n0_z / ni  # non-dimensionalize the initial charge carrier density
         P0 = P0 / ni
         x = np.linspace(0, 1, grid_size)
@@ -1018,7 +1018,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
 
                     return np.nan * np.ones((len(t),grid_size)), np.nan * np.ones((len(t),grid_size))
 
-                if dimentionless:
+                if dimensionless:
                     if use_jacobian:
                         sol_single = solve_ivp(model_vect_dimensionless, [t_span[0],t_span[-1]], P0, method=method, args=arg, vectorized=True,  rtol=rtol, atol=atol,t_eval=t_span,jac=jacobian_no_flux_vectorized_fixed, events=timeout_event)
                     else:
@@ -1065,7 +1065,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
 
         # Now run the simulation with the right time
         # print("Running the simulation ad",parameters)
-        if dimentionless:
+        if dimensionless:
             t = t/ tau
             if use_jacobian:
                 sol = solve_ivp(model_vect_dimensionless, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
@@ -1077,7 +1077,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
             else:
                 sol = solve_ivp(model_vect, [t[0], t[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol)
         # print('done',parameters)
-        # if dimentionless:
+        # if dimensionless:
         #     t = t/ tau
         #     if use_jacobian:
         #         sol = solve_ivp(model_vect_dimensionless, [t_span[0], t_span[-1]], P0, method=method, args=arg, vectorized=True, t_eval=t, rtol=rtol, atol=atol,jac=jacobian_no_flux_vectorized_fixed)
@@ -1096,7 +1096,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         n_dens = sol_flat[0, :, :].T  # electron density
         p_dens = sol_flat[1, :, :].T  # hole density
     
-        if dimentionless:
+        if dimensionless:
             n_dens = n_dens * ni
             p_dens = p_dens * ni
 

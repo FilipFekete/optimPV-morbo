@@ -930,35 +930,36 @@ class axBOtorchOptimizer(BaseAgent):
                     # remove nan from Y_next and X_next
                     Y_next = Y_next[~nan_idx]
                     X_next = X_next[~nan_idx]
-
-                    if nan_idx.sum() > state.batch_size:
-                        raise ValueError("Too many NaN values in Y_next")
                     
-                    # Also collect tracking metrics if they exist
-                    Y_next_tracking = None
-                    if self.all_tracking_metrics and len(self.all_tracking_metrics) > 0:
-                        tracking_data = []
-                        for res in main_results:
-                            metrics_vals = []
-                            for metric in self.all_tracking_metrics:
-                                if metric in res:
-                                    metrics_vals.append(res[metric])
-                                else:
-                                    metrics_vals.append(float('nan'))
-                            tracking_data.append(metrics_vals)
-                        if tracking_data:
-                            Y_next_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
-                        Y_next_tracking = Y_next_tracking[~nan_idx]
-                    # Update state
-                    state = update_state(state=state, Y_next=Y_next)
+                    if Y_next.shape[0] != 0: # if we have at least one non-nan value
+                        if nan_idx.sum() > state.batch_size:
+                            raise ValueError("Too many NaN values in Y_next")
+                        
+                        # Also collect tracking metrics if they exist
+                        Y_next_tracking = None
+                        if self.all_tracking_metrics and len(self.all_tracking_metrics) > 0:
+                            tracking_data = []
+                            for res in main_results:
+                                metrics_vals = []
+                                for metric in self.all_tracking_metrics:
+                                    if metric in res:
+                                        metrics_vals.append(res[metric])
+                                    else:
+                                        metrics_vals.append(float('nan'))
+                                tracking_data.append(metrics_vals)
+                            if tracking_data:
+                                Y_next_tracking = torch.tensor(tracking_data, device=device, dtype=dtype)
+                            Y_next_tracking = Y_next_tracking[~nan_idx]
+                        # Update state
+                        state = update_state(state=state, Y_next=Y_next)
 
-                    # Append data
-                    X_turbo = torch.cat((X_turbo, X_next), dim=0)
-                    Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
-                    if Y_tracking is not None and Y_next_tracking is not None:
-                        Y_tracking = torch.cat((Y_tracking, Y_next_tracking), dim=0)
-                    elif Y_next_tracking is not None:
-                        Y_tracking = Y_next_tracking
+                        # Append data
+                        X_turbo = torch.cat((X_turbo, X_next), dim=0)
+                        Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
+                        if Y_tracking is not None and Y_next_tracking is not None:
+                            Y_tracking = torch.cat((Y_tracking, Y_next_tracking), dim=0)
+                        elif Y_next_tracking is not None:
+                            Y_tracking = Y_next_tracking
                         
                     num_turbo += state.batch_size
                     

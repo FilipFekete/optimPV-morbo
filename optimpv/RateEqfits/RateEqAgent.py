@@ -5,6 +5,7 @@ import os, uuid, sys, copy, warnings
 import numpy as np
 import pandas as pd
 from scipy import interpolate, constants
+from joblib import Parallel, delayed
 
 from optimpv import *
 from optimpv.general.general import calc_metric, loss_function, transform_data
@@ -265,6 +266,8 @@ class RateEqAgent(BaseAgent):
         float
             Loss function value.
         """    
+        parallel = self.kwargs.get('parallel', False)
+        max_jobs = self.kwargs.get('max_jobs', 1)
 
         # get Gfracs from X
         if 'QE' in parameters.keys():
@@ -340,46 +343,52 @@ class RateEqAgent(BaseAgent):
             ns, ps = self.model(parameters, t, Generation, t_span, N0 = N0, equilibrate = self.equilibrate, G_frac = G_frac, **self.kwargs)
             Gfrac_list = np.ones(len(t))
         else:
-            for Gfrac in Gfracs:
-                t = self.X[0][self.X[0][:,1] == Gfrac,0]
-                tmax = 0.99999*1/self.pump_args['fpu']
-                t_span = t
-                
-                if t_span[-1] < tmax:
-                    dum = np.linspace(t[-1],tmax,100)
-                    dum = dum[1:]
-                    t_span = np.hstack((t,dum))
+            if parallel:
+                num_cores = min(max_jobs, len(Gfracs),os.cpu_count())
 
-                Generation = self.pump_model(t_span, G_frac = Gfrac, **self.pump_args) * QE
-                
-                if 'N0' in self.pump_args.keys():
-                    N0 = self.pump_args['N0']
-                else:
-                    N0 = 0
+                results = Parallel(n_jobs=num_cores,backend="loky")(delayed(self._run_single_Gfrac)(parameters, Gfrac, QE) for Gfrac in Gfracs)
 
-                ns_, ps_ = self.model(parameters, t, Generation, t_span, N0 = N0, equilibrate = self.equilibrate, G_frac = Gfrac, **self.kwargs)
-                if type(ns_) is list:
-                    ns_ = np.asarray(ns_)
-                    ps_ = np.asarray(ps_)
-
-                try:                   
-                    if ns is None:
-                        ns = ns_
-                        ps = ps_
-                        t_list = t
-                        Gfrac_list = np.ones(len(t))*Gfrac
-                    else:
-                        if type(ns_) is list:
-                            ns = np.hstack((ns,ns_))
-                            ps = np.hstack((ps,ps_))
+                for ns_, ps_, t, Gfrac in results:
+                    try:                   
+                        if ns is None:
+                            ns = ns_
+                            ps = ps_
+                            t_list = t
+                            Gfrac_list = np.ones(len(t))*Gfrac
                         else:
-                            ns = np.vstack((ns,ns_))
-                            ps = np.vstack((ps,ps_))
-                        t_list = np.hstack((t_list,t))
-                        Gfrac_list = np.hstack((Gfrac_list,np.ones(len(t))*Gfrac))
-                except Exception as e:
-                    logger.error(f"The simulation failed for {parameters}\n{e}")
-                    return np.nan
+                            if type(ns_) is list:
+                                ns = np.hstack((ns,ns_))
+                                ps = np.hstack((ps,ps_))
+                            else:
+                                ns = np.vstack((ns,ns_))
+                                ps = np.vstack((ps,ps_))
+                            t_list = np.hstack((t_list,t))
+                            Gfrac_list = np.hstack((Gfrac_list,np.ones(len(t))*Gfrac))
+                    except Exception as e:
+                        logger.error(f"The simulation failed for {parameters}\n{e}")
+                        return np.nan
+            else:
+                for Gfrac in Gfracs:
+                    ns_, ps_, t, Gfrac = self._run_single_Gfrac(parameters, Gfrac, QE)
+
+                    try:                   
+                        if ns is None:
+                            ns = ns_
+                            ps = ps_
+                            t_list = t
+                            Gfrac_list = np.ones(len(t))*Gfrac
+                        else:
+                            if type(ns_) is list:
+                                ns = np.hstack((ns,ns_))
+                                ps = np.hstack((ps,ps_))
+                            else:
+                                ns = np.vstack((ns,ns_))
+                                ps = np.vstack((ps,ps_))
+                            t_list = np.hstack((t_list,t))
+                            Gfrac_list = np.hstack((Gfrac_list,np.ones(len(t))*Gfrac))
+                    except Exception as e:
+                        logger.error(f"The simulation failed for {parameters}\n{e}")
+                        return np.nan
         
         dum_dict = {}
         dum_dict['n'] = list(ns)
@@ -693,6 +702,30 @@ class RateEqAgent(BaseAgent):
 
         return Xfit,yfit
 
+    def _run_single_Gfrac(self, parameters, Gfrac, QE):
+        t = self.X[0][self.X[0][:,1] == Gfrac,0]
+        tmax = 0.99999*1/self.pump_args['fpu']
+        t_span = t
+        
+        if t_span[-1] < tmax:
+            dum = np.linspace(t[-1],tmax,100)
+            dum = dum[1:]
+            t_span = np.hstack((t,dum))
+
+        Generation = self.pump_model(t_span, G_frac = Gfrac, **self.pump_args) * QE
+        
+        if 'N0' in self.pump_args.keys():
+            N0 = self.pump_args['N0']
+        else:
+            N0 = 0
+
+        ns_, ps_ = self.model(parameters, t, Generation, t_span, N0 = N0, equilibrate = self.equilibrate, G_frac = Gfrac, **self.kwargs)
+        if type(ns_) is list:
+            ns_ = np.asarray(ns_)
+            ps_ = np.asarray(ps_)
+
+        return ns_, ps_, t, Gfrac
+    
     def run(self,parameters,X=None,exp_format='trPL'):
         """Run the diode model and calculate the loss function
 
