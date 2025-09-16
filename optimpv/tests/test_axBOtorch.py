@@ -593,3 +593,247 @@ def test_DOE_MOO():
         assert False, "Error occurred during DOE MOO fitting: {}".format(e)
 
 
+def test_multi_trap():
+    try:
+        # Define the parameters to be fitted
+        params = []
+
+        Eg = FitParam(name = 'Eg', value = 1.553, bounds = [0.5,2.0], log_scale = False, rescale = True, value_type = 'float', type='fixed', display_name=r'$E_g$', unit='eV', axis_type = 'linear')
+        params.append(Eg)
+
+        L = FitParam(name = 'L', value = 450e-9, bounds = [400e-9,1e-6], log_scale = True, rescale = True, value_type = 'float', type='fixed', display_name=r'$L$', unit='m', axis_type = 'linear',force_log=True)
+        params.append(L)
+
+        alpha = FitParam(name = 'alpha', value = 64348.30886337494 *1e2, bounds = [1e6,1e8], log_scale = True, rescale = True, value_type = 'float', type='fixed', display_name=r'$\alpha$', unit='m$^{-1}$', axis_type = 'log',)
+        params.append(alpha)
+
+        N_cv = FitParam(name = 'N_cv', value = 2e24, bounds = [1e19,1e25], log_scale = True, rescale = True, value_type = 'float', type='fixed', display_name=r'$N_{cv}$', unit='m$^{-3}$', axis_type = 'log',force_log=True)
+        params.append(N_cv)
+
+        k_direct = FitParam(name = 'k_direct', value = 1.96e-17, bounds = [1e-18,1e-14], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$k_{\text{direct}}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(k_direct)
+
+        mu_n = FitParam(name = 'mu_n', value = 1.2e-4, bounds = [1e-6,1e-2], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$\mu_n$', unit='m$^{2}$ V$^{-1}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(mu_n) # 4e-1*1e-4
+
+        mu_p = FitParam(name = 'mu_p', value = 4e-5, bounds = [1e-6,1e-2], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$\mu_p$', unit='m$^{2}$ V$^{-1}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(mu_p) # 4e-1*1e-4
+
+        N_t_bulk_1 = FitParam(name = 'N_t_bulk_1', value = 1.85e23, bounds = [1e19,1e24], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$N_{t,\text{bulk}}$', unit='m$^{-3}$', axis_type = 'log',force_log=True)
+        params.append(N_t_bulk_1)
+
+        C_n_1 = FitParam(name = 'C_n_1', value = 4.24e-15, bounds = [1e-19,1e-12], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$C_{n,1}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(C_n_1)
+
+        C_p_1 = FitParam(name = 'C_p_1', value = 8.85e-19, bounds = [1e-19,1e-12], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$C_{p,1}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(C_p_1)
+
+        E_t_bulk_1 = FitParam(name = 'E_t_bulk_1', value = 0.2, bounds = [0.05,0.3], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$E_{t,\text{bulk}}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=False)
+        params.append(E_t_bulk_1)
+
+        N_t_bulk_2 = FitParam(name = 'N_t_bulk_2', value = 1.36e21, bounds = [1e19,1e24], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$N_{t,\text{bulk}}$', unit='m$^{-3}$', axis_type = 'log',force_log=True)
+        params.append(N_t_bulk_2)
+
+        C_n_2 = FitParam(name = 'C_n_2', value = 1.72e-13, bounds = [1e-19,1e-12], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$C_{n,2}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(C_n_2)
+
+        C_p_2 = FitParam(name = 'C_p_2', value = 1.13e-16, bounds = [1e-19,1e-12], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$C_{p,2}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(C_p_2)
+
+        E_t_bulk_2 = FitParam(name = 'E_t_bulk_2', value = 1.34, bounds = [0.3,Eg.value-0.1], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$E_{t,\text{bulk}}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=False)
+        params.append(E_t_bulk_2)
+
+        I_factor_PL = FitParam(name = 'I_factor_PL', value = 1.275e-22, bounds = [1e-27,1e-20], log_scale = True, rescale = True, value_type = 'float', type='fixed', display_name=r'$I_{\text{PL}}$', unit='-', axis_type = 'log', force_log=True)
+        params.append(I_factor_PL) # in the following we weill fit the PL with the normalized log transformation so this factor is not useful and can be fixed to any value
+
+
+        # original values
+        params_orig = copy.deepcopy(params)
+        num_free_params = 0
+        dum_dic = {}
+        for i in range(len(params)):
+            if params[i].force_log:
+                dum_dic[params[i].name] = np.log10(params[i].value)
+            else:
+                dum_dic[params[i].name] = params[i].value/params[i].fscale
+        # we need this just to run the model to generate some fake data
+
+            if params[i].type != 'fixed'    :
+                num_free_params += 1
+
+        # Define the path to the data 
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+        path2data  = os.path.join(parent_dir,'Data','FAPI_trPL')
+        filenames = ['2M11-FAPI27_3600s_10kHz_ND3_1280cps_0.272112uW.dat','1M3-FAPI27_3600s_10kHz_ND2_500cps_0.0737403uW.dat','0M4-FAPI27_3600s_10kHz_ND1_940cps_0.048888uW.dat',] #'3M8-FAPI27_3600s_10kHz_ND5_570cps_1.2156099999999999uW.dat',
+        power = []
+        pmax = 1.2156099999999999
+        pmax = max([float(file.split('_')[-1].replace('uW.dat', '')) for file in filenames])
+        for idx, file in enumerate(filenames):
+            data_raw = pd.read_csv(os.path.join(path2data,file), sep=r'\s+',names=['idx','t',"trPL"], skiprows=1)
+            data_raw = data_raw[['t', 'trPL']]
+            # convert time to seconds
+            data_raw['t'] = data_raw['t'] * 1e-12 # convert to seconds
+            max_idx = data_raw['trPL'].idxmax()
+
+            # remove everything before the maximum
+            data_raw = data_raw.iloc[max_idx:]
+            # reset the index
+            data_raw = data_raw.dropna() # remove rows with negative trPL values
+            data_raw = data_raw[data_raw['trPL'] >= 0]# remove rows with negative trPL values
+            data_raw['t'] = data_raw['t'] - data_raw['t'][max_idx]
+            data_raw = data_raw[data_raw['t'] >= 0]# remove rows with negative trPL values
+            data_raw = data_raw.reset_index(drop=True)
+
+            # interpolate the data to have a logarithmically spaced time axis
+            t_log = np.logspace(np.log10(data_raw['t'][1]), np.log10(data_raw['t'].max()), num=1000)
+            t_log = np.insert(t_log, 0, 0)  # add 0 to the time array
+            # interpolate the trPL values
+            trPL_log = np.interp(t_log, data_raw['t'] - data_raw['t'].min(), data_raw['trPL'])
+
+            power.append(float(file.split('_')[-1].replace('uW.dat', '')))
+            if idx == 0:
+                data2fit = {'t': t_log - t_log.min(), 'trPL': trPL_log, 'G_frac': power[-1] / pmax * np.ones_like(t_log)}
+            else:
+                data2fit['t'] = np.concatenate((data2fit['t'], t_log - t_log.min()))
+                data2fit['trPL'] = np.concatenate((data2fit['trPL'], trPL_log))
+                data2fit['G_frac'] = np.concatenate((data2fit['G_frac'], power[-1] / pmax * np.ones_like(t_log)))
+
+        data2fit= pd.DataFrame(data2fit)
+
+        time = data2fit['t'].values # time in seconds
+        X = np.asarray(data2fit[['t', 'G_frac']])
+        y = np.asarray(data2fit['trPL'])
+        fpu = 10e3 # Frequency of the pump laser in Hz
+        N0 = 1.39e+20
+        background = 0e28 # Background illumination 
+
+        # Define the Agent and the target metric/loss function
+        metric = 'nrmse'
+        loss = 'linear' # 'nrmse' or 'mse' or 'soft_l1' or 'linear'
+        pump_args = {'N0': N0, 'fpu': fpu , 'background' : background, }
+        exp_format = 'trPL' # experiment format
+        RateEq = RateEqAgent(params, [X], [y], model = DBTD_multi_trap, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  compare_type ='normalized_log',do_G_frac_transform=True)
+
+        model_gen_kwargs_list = None
+        # Here we add some constraints to the parameters to help the optimizer
+        parameter_constraints = [f' -N_t_bulk_1 - 0.5 * C_n_1 - 0.5 * C_p_1  - N_t_bulk_2 - 0.5 * C_n_2 - 0.5 * C_p_2<= -5']
+
+        model_kwargs_list = [{},{"torch_device":torch.device("cuda" if torch.cuda.is_available() else "cpu"),'botorch_acqf_class':qLogNoisyExpectedImprovement,'transforms':[RemoveFixed, Log,UnitX, StandardizeY],'surrogate_spec':SurrogateSpec(model_configs=[ModelConfig(botorch_model_class=SingleTaskGP,covar_module_class=ScaleKernel, covar_module_options={'base_kernel':MaternKernel(nu=2.5, ard_num_dims=num_free_params)})])}]
+
+        optimizer = axBOtorchOptimizer(params = params, agents = RateEq, models = ['SOBOL','BOTORCH_MODULAR'],n_batches = [1,2], batch_size = [8,4], ax_client = None,  max_parallelism = 100, model_kwargs_list = model_kwargs_list, model_gen_kwargs_list = model_gen_kwargs_list, name = 'ax_opti',parameter_constraints = parameter_constraints,parallel_agents= True)
+
+        optimizer.optimize_turbo(force_continue=False,kwargs_turbo_state={'failure_tolerance':4}) # run the optimization with turbo
+
+        assert True
+    except Exception as e:
+        assert False, "Error occurred during multi-trap rate equation fitting: {}".format(e)
+
+def test_diff_rec():
+
+    try:
+        # Define the parameters to be fitted
+        # Note: in general for log spaced value it is better to use the foce_log option when doing the Bayesian inference
+        params = []
+
+        k_direct = FitParam(name = 'k_direct', value = 7.5e-17, bounds = [1e-18,1e-15], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$k_{\text{direct}}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(k_direct)
+
+        k_deep = FitParam(name = 'k_deep', value = 1.6e4, bounds = [1e4,1e6], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$k_{\text{deep}}$', unit='s$^{-1}$', axis_type = 'log', force_log=True)
+        params.append(k_deep)
+
+        k_c = FitParam(name = 'k_c', value = 1.3e6, bounds = [1e4,1e8], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$k_{\text{c}}$', unit='s$^{-1}$', axis_type = 'log', force_log=True)
+        params.append(k_c)
+
+        k_e = FitParam(name = 'k_e', value = 7.5e5, bounds = [1e4,1e8], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$k_{\text{e}}$', unit='m$^{3}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(k_e)
+
+        mu = FitParam(name = 'mu', value = 4e-1*1e-4, bounds = [1e-6,1e-2], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$\mu$', unit='m$^{2}$ V$^{-1}$ s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(mu)
+
+        Sfront = FitParam(name = 'S_front', value = 7*1e-2, bounds = [1e-4,1e-1], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$S_{\text{front}}$', unit='m s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(Sfront)
+
+        L = FitParam(name = 'L', value = 600e-9, bounds = [400e-9,1e-6], log_scale = True, rescale = True, value_type = 'float', type='fixed', display_name=r'$L$', unit='m', axis_type = 'linear',force_log=True)
+        params.append(L)
+
+        Sback = FitParam(name = 'S_back', value = 4*1e-2, bounds = [1e-4,1e-1], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$S_{\text{back}}$', unit='m s$^{-1}$', axis_type = 'log',force_log=True)
+        params.append(Sback)
+
+        I_factor_PL = FitParam(name = 'I_factor_PL', value = 1e-28, bounds = [1e-29,1e-27], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$I_{\text{PL}}$', unit='-', axis_type = 'log', force_log=True)
+        params.append(I_factor_PL)
+
+        N_A = FitParam(name = 'N_A', value = 2.1e21, bounds = [1e20,1e23], log_scale = True, rescale = True, value_type = 'float', type='range', display_name=r'$N_A$', unit='m$^{-3}$', axis_type = 'log',force_log=True)
+        params.append(N_A)
+
+        alpha = FitParam(name = 'alpha', value = 3e8, bounds = [1e6,1e8], log_scale = True, rescale = True, value_type = 'float', type='fixed', display_name=r'$\alpha$', unit='m$^{-1}$', axis_type = 'log',)
+        params.append(alpha)
+
+        # original values
+        params_orig = copy.deepcopy(params)
+        num_free_params = 0
+        dum_dic = {}
+        for i in range(len(params)):
+            if params[i].force_log:
+                dum_dic[params[i].name] = np.log10(params[i].value)
+            else:
+                dum_dic[params[i].name] = params[i].value/params[i].fscale
+        # we need this just to run the model to generate some fake data
+
+            if params[i].type != 'fixed':
+                num_free_params += 1
+
+        # Define the path to the data
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+        path2data  = os.path.join(parent_dir,'Data','perovskite_trPL')
+        data_raw = pd.read_csv(os.path.join(path2data,'Seo_FAPI1_Glass_0.dat'), sep=r'\s+',names=['t',"trPL"], skiprows=1)
+        # convert time to seconds
+        data_raw['t'] = data_raw['t'] * 1e-9 # convert to seconds
+        max_idx = data_raw['trPL'].idxmax()
+        # remove everything before the maximum
+        data_raw = data_raw.iloc[max_idx-1:]
+        # reset the index
+        data_raw = data_raw.dropna() # remove rows with negative trPL values
+        data_raw = data_raw[data_raw['trPL'] >= 0]# remove rows with negative trPL values
+        data_raw = data_raw.reset_index(drop=True)
+
+        # interpolate the data to have a logarithmically spaced time axis
+        t_log = np.logspace(np.log10(2e-9), np.log10(data_raw['t'].max()), num=1000)
+        t_log = np.insert(t_log, 0, 0)  # add 0 to the time array
+        # interpolate the trPL values
+        trPL_log = np.interp(t_log, data_raw['t'] - data_raw['t'].min(), data_raw['trPL'])
+        data2fit = pd.DataFrame({'t': t_log - t_log.min(), 'trPL': trPL_log})
+
+        # Plot the data to be fitted and the initial guess
+        tim = data2fit['t'].values # time in seconds
+        X = tim
+        y = data2fit['trPL'] 
+
+        fpu = 50e3 # Frequency of the pump laser in Hz
+        Fluence = 4.8e15 # Fluence in m-2
+        z_array = np.linspace(0, L.value, 100) # z-axis in meters
+        generation = np.exp(-alpha.value * z_array)
+        generation_sum = np.trapezoid(generation, z_array)
+        n_0z = Fluence / generation_sum * generation
+        N0 = np.mean(n_0z) # mean initial carrier density in m-3
+        background = 0e28 # Background illumination 
+
+
+        # Define the Agent and the target metric/loss function
+        metric = 'nrmse'
+        loss = 'linear' # 'nrmse' or 'mse' or 'soft_l1' or 'linear'
+        pump_args = {'N0': N0, 'fpu': fpu , 'background' : background, }
+        exp_format = 'trPL' # experiment format
+        RateEq = RateEqAgent(params, [X], [y], model = DBTD_model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  compare_type ='log')
+
+        model_gen_kwargs_list = None
+        parameter_constraints = None
+
+        model_kwargs_list = [{},{"torch_device":torch.device("cuda" if torch.cuda.is_available() else "cpu"),'botorch_acqf_class':qLogNoisyExpectedImprovement,'transforms':[RemoveFixed, Log,UnitX, StandardizeY],'surrogate_spec':SurrogateSpec(model_configs=[ModelConfig(botorch_model_class=SingleTaskGP,covar_module_class=ScaleKernel, covar_module_options={'base_kernel':MaternKernel(nu=2.5, ard_num_dims=num_free_params)})])}]
+
+        optimizer = axBOtorchOptimizer(params = params, agents = RateEq, models = ['SOBOL','BOTORCH_MODULAR'],n_batches = [1,2], batch_size = [8,2], ax_client = None,  max_parallelism = 100, model_kwargs_list = model_kwargs_list, model_gen_kwargs_list = model_gen_kwargs_list, name = 'ax_opti',parameter_constraints = parameter_constraints,)
+
+        optimizer.optimize_turbo(force_continue=True,kwargs_turbo_state={'failure_tolerance':10}) # run the optimization with turbo
+    
+        assert True
+    except Exception as e:
+        assert False, "Error occurred during diffusion-recombination fitting: {}".format(e)

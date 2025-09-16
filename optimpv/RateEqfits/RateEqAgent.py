@@ -356,7 +356,7 @@ class RateEqAgent(BaseAgent):
                             t_list = t
                             Gfrac_list = np.ones(len(t))*Gfrac
                         else:
-                            if type(ns_) is list:
+                            if len(ns_.shape) == 1:
                                 ns = np.hstack((ns,ns_))
                                 ps = np.hstack((ps,ps_))
                             else:
@@ -378,7 +378,7 @@ class RateEqAgent(BaseAgent):
                             t_list = t
                             Gfrac_list = np.ones(len(t))*Gfrac
                         else:
-                            if type(ns_) is list:
+                            if len(ns_.shape) == 1:
                                 ns = np.hstack((ns,ns_))
                                 ps = np.hstack((ps,ps_))
                             else:
