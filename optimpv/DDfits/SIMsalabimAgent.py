@@ -268,7 +268,7 @@ class SIMsalabimAgent(BaseAgent):
                 if param.value_type == 'float' and not no_transform:
                     if param.force_log:
                         cmd_pars.append({'par': layer+'.N_anion', 'val': str(10**value)})
-                        cmd_pars.append({'par': layer+'.N_cation', 'val': str(10**param.value)})
+                        cmd_pars.append({'par': layer+'.N_cation', 'val': str(10**value)})
                     else:
                         cmd_pars.append({'par': layer+'.N_anion', 'val': str(value*param.fscale)})
                         cmd_pars.append({'par': layer+'.N_cation', 'val': str(value*param.fscale)})

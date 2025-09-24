@@ -12,7 +12,7 @@ Added support for parallelization using joblib to run the different G_frac in pa
 - Data: Added some new experimental data for testing the RateEqAgent and the DBTD_multi_trap model based on the work by Maxim Simmonds (HZB) and the repository [MAPI-FAPI-fitting](https://github.com/MaximSimmonds-HZB/MAPI-FAPI-fitting).
 - Updated tests for the new functionalities.
 - Updated the notebooks to use the new functionalities.
-
+- JVAgent: Removed bug in ambi_param_transform for N_ions with force_log=True.
 
 
 v1.03 - 2025-08-14 - VMLC-PV
