@@ -35,14 +35,14 @@ setuptools.setup(
         'openpyxl>=3.0',
         'pyodbc>=4.0',
         'scikit-optimize>=0.9',
-        'pySIMsalabim>=1.2',
+        'pySIMsalabim>=1.3',
         'tk',
         'torch>=2.0',
         'torchvision>=0.15',
         'torchaudio>=2.0',
         'emcee>=3.1',
         'pymoo>=0.6',
-        'ax-platform==1.1.0',
+        'ax-platform>=1.1.0',
 
     ],
     extras_require = {

@@ -2,7 +2,7 @@ Change Log
 ==========
 All notable changes to this project will be documented in this file.
 
-v1.04 - 2025-09-08 - VMLC-PV
+v1.04 - 2025-09-25 - VMLC-PV
 -----------------------------
 - DiodeAgent: Updated the code to use the transform_data function to make it consistent with the other Agents.
 - JVAgent, RateEqAgent general: modified the transform_data function to make the transformation based on the G_frac when needed for the JVAgent and the RateEqAgent. In those cases, the G_frac column is assumed to be the second column of the X array. 
