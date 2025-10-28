@@ -3,7 +3,7 @@
 
 import numpy as np
 import pandas as pd
-import os, uuid, sys, copy
+import os, uuid, sys, copy, shutil
 from scipy import interpolate
 
 from optimpv import *
@@ -402,8 +402,8 @@ class SIMsalabimAgent(BaseAgent):
         for idx, cmd in enumerate(Ec_cmd_nrj):
             layer, par = cmd['par'].split('.')
             offset, layer1, layer2 = layer.split('_')
-            if int(layer1[1:]) <= int(layer2[1:]):
-                raise ValueError('The energy level offset between conduction bands must be define from right to left so the offset should be defined as offset_'+layer2+'_offset_'+layer1+' instead of offset_'+layer1+'_offset_'+layer2)
+            # if int(layer1[1:]) <= int(layer2[1:]):
+            #     raise ValueError('The energy level offset between conduction bands must be define from right to left so the offset should be defined as offset_'+layer2+'_offset_'+layer1+' instead of offset_'+layer1+'_offset_'+layer2)
             if par == 'E_c':
                 Ec_val = float(tmp_SIMsalabim_params[layer1]['E_c']) - float(cmd['val'])
                 clean_pars.append({'par': layer2+'.E_c', 'val': str(Ec_val)})
@@ -412,8 +412,8 @@ class SIMsalabimAgent(BaseAgent):
         for idx, cmd in enumerate(Ev_cmd_nrj):
             layer, par = cmd['par'].split('.')
             offset, layer1, layer2 = layer.split('_')
-            if int(layer1[1:]) >= int(layer2[1:]):
-                raise ValueError('The energy level offset between valence bands must be define from left to right so the offset should be defined as offset_'+layer1+'_offset_'+layer2+' instead of offset_'+layer2+'_offset_'+layer1)
+            # if int(layer1[1:]) >= int(layer2[1:]):
+            #     raise ValueError('The energy level offset between valence bands must be define from left to right so the offset should be defined as offset_'+layer1+'_offset_'+layer2+' instead of offset_'+layer2+'_offset_'+layer1)
             if par == 'E_v':
                 Ev_val = float(tmp_SIMsalabim_params[layer1]['E_v']) - float(cmd['val'])
                 clean_pars.append({'par': layer2+'.E_v', 'val': str(Ev_val)})

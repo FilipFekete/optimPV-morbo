@@ -799,7 +799,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     
     # Derived quantities
     ni = np.sqrt(N_c*N_v*np.exp(-Eg/(kb*T))) # intrinsic carrier concentration in m^-3
-    p1s = N_v*np.exp(-E_t_bulk_list/(2*kb*T)) 
+    p1s = N_v*np.exp(-E_t_bulk_list/(kb*T)) 
     n1s = N_c*np.exp((E_t_bulk_list-Eg)/(kb*T))  
     D_n = mu_n * kb * T  # electron diffusion coefficient in m^2 s^-1
     D_p = mu_p * kb * T  # hole diffusion coefficient in m^2 s^-1

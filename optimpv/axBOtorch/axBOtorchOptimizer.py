@@ -181,13 +181,17 @@ class axBOtorchOptimizer(BaseAgent):
         torch.set_default_dtype(self.torch_dtype)
 
 
-    def create_generation_strategy(self):
+    def create_generation_strategy(self,skip_center=False,skip_sobol=False):
         """ Create a generation strategy for the optimization process using the models and the number of batches and batch sizes. See ax documentation for more details: https://ax.dev/tutorials/generation_strategy.html
 
         Returns
         -------
         GenerationStrategy
             The generation strategy for the optimization process
+        skip_center : bool, optional
+            If True, the Center model will be skipped, by default False
+        skip_sobol : bool, optional
+            If True, the Sobol model will be skipped, by default False
 
         Raises
         ------
@@ -227,6 +231,11 @@ class axBOtorchOptimizer(BaseAgent):
         # Create the generator spec
         for i, model in enumerate(generators):
             # Get the next node name
+            if skip_center and names[i].lower() == 'center':
+                continue
+            if skip_sobol and names[i].lower() == 'sobol':
+                continue
+
             if names[i].lower() == 'center':
                 # Center node is a customized node that uses a simplified logic and has a
                 # built-in transition criteria that transitions after generating once.
@@ -258,6 +267,8 @@ class axBOtorchOptimizer(BaseAgent):
                 )
 
             nodes_list.append(node)
+        if len(nodes_list) == 0:
+            raise ValueError('No generation nodes were created. Please check the models and skip_center and skip_sobol parameters.')
         # Create the generation strategy
         return GenerationStrategy(
             name=Gen_strat_name,
@@ -1046,7 +1057,7 @@ class axBOtorchOptimizer(BaseAgent):
 
         # load all data into ax
         # create generation strategy using the second model
-        gs = self.create_generation_strategy()
+        gs = self.create_generation_strategy(skip_sobol=True,skip_center=True) # we skip the sobol and center model as we already have the data and we want a trainable model
 
         # create ax client
         if self.ax_client is None:

@@ -3,7 +3,7 @@
 
 import numpy as np
 import pandas as pd
-import os, uuid, sys, copy
+import os, uuid, sys, copy, re
 from scipy import interpolate
 
 from optimpv import *
@@ -112,8 +112,12 @@ class JVAgent(SIMsalabimAgent):
 
         # check that all elements in exp_format are valid
         for JV_form in self.exp_format:
-            if JV_form not in ['JV']:
-                raise ValueError('{JV_form} is an invalid JV format. Possible values are: JV')
+            is_valid = (JV_form == 'JV' or re.match(r'^QFLSL-?\d+$', JV_form))
+    
+            if not is_valid:
+                raise ValueError(f'{JV_form} is an invalid JV format. Possible values are: JV or QFLSL followed by an integer (e.g., QFLSL1, QFLSL2, etc.)')
+            # if JV_form not in ['JV'] or 'QFLS' not in JV_form:
+            #     raise ValueError('{JV_form} is an invalid JV format. Possible values are: JV or QFLS')
         if weight is not None:
             # check that weight has the same length as y
             if not len(weight) == len(y):
@@ -163,9 +167,10 @@ class JVAgent(SIMsalabimAgent):
                 
             # check that all elements in tracking_exp_format are valid
             for form in self.tracking_exp_format:
-                if form not in ['JV']:
-                    raise ValueError(f'{form} is an invalid tracking_exp_format, must be "JV"')
-            
+                is_valid = (form == 'JV' or re.match(r'^QFLSL-?\d+$', form))
+                if not is_valid:
+                    raise ValueError(f'{form} is an invalid tracking_exp_format, must be "JV" or "QFLSL" followed by an integer')
+
             # Process tracking_X and tracking_y
             # Check if all tracking formats are in main exp_format
             all_formats_in_main = all(fmt in self.exp_format for fmt in self.tracking_exp_format)
@@ -601,7 +606,7 @@ class JVAgent(SIMsalabimAgent):
         
         Xfit, yfit = [], []
         do_interp = True
-
+        
         if exp_format == 'JV':
             #  check if Gfrac in df 
             if 'Gfrac' in df.columns:
@@ -676,6 +681,79 @@ class JVAgent(SIMsalabimAgent):
                 else:
                     Xfit = X
                     yfit = Jext
+        elif exp_format in df.columns:
+            if 'Gfrac' in df.columns:
+                Gfracs, indices = np.unique(X[:,1], return_index=True)
+                Gfracs = Gfracs[np.argsort(indices)] # unsure the order of the Gfracs is the same as they are in X 
+
+                for Gfrac in Gfracs:
+                    df_dum = df[df['Gfrac'] == Gfrac]
+                    Vext = np.asarray(df_dum['Vext'].values)
+                    exp = np.asarray(df_dum[exp_format].values)
+                    G = np.ones_like(Vext)*Gfrac
+
+                    # check if all points from X[:,0] and data['Vext'].values are the same
+                    do_interp = True
+                    if len(X[X[:,1]==Gfrac,0]) == len(Vext) :
+                        if np.allclose(X[X[:,1]==Gfrac,0], Vext):
+                            do_interp = False
+
+                    if do_interp:
+                        # Do interpolation in case SIMsalabim did not return the same number of points 
+                        # if Vext[0] >
+                        try:
+                            tck = interpolate.splrep(Vext, exp, s=0)
+                            if len(Xfit) == 0:
+                                Xfit = np.vstack((Vext,G)).T
+                                yfit = interpolate.splev(X[X[:,1]==Gfrac,0], tck, der=0, ext=0)
+                            else:
+                                Xfit = np.vstack((Xfit,np.vstack((Vext,G)).T))
+                                yfit = np.hstack((yfit,interpolate.splev(X[X[:,1]==Gfrac,0], tck, der=0, ext=0)))
+                            
+                        except Exception as e:
+                            # if min(X[X[:,1]==Gfrac,0])- 0.025 < min(Vext):
+                            #     # add a point at the beginning of the JV curve
+                            #     Vext
+                            f = interpolate.interp1d(Vext, exp, fill_value='extrapolate', kind='linear')
+                            if len(Xfit) == 0:
+                                Xfit = np.vstack((Vext,G)).T
+                                yfit = f(X[X[:,1]==Gfrac,0])
+                            else:
+                                Xfit = np.vstack((Xfit,np.vstack((Vext,G)).T))
+                                yfit = np.hstack((yfit,f(X[X[:,1]==Gfrac,0])))
+                    else:
+                        if len(Xfit) == 0:
+                            Xfit = np.vstack((Vext,G)).T
+                            yfit = exp
+                        else:
+                            Xfit = np.vstack((Xfit,np.vstack((Vext,G)).T))
+                            yfit = np.hstack((yfit,exp))
+            else:
+                Vext = np.asarray(df['Vext'].values)
+                exp = np.asarray(df[exp_format].values)
+                G = np.ones_like(Vext)
+
+                # check if all points from X[:,0] and data['Vext'].values are the same
+                do_interp = True
+                if len(X) == len(Vext) :
+                    if np.allclose(X[:,0], Vext):
+                        do_interp = False
+
+                if do_interp:
+                    # Do interpolation in case SIMsalabim did not return the same number of points 
+                    try:
+                        tck = interpolate.splrep(Vext, exp, s=0)
+                        yfit = interpolate.splev(X, tck, der=0, ext=0)
+                    except:
+                        # if min(X)- 0.025 < min(Vext):
+                        #     # add a point at the beginning of the JV curve
+                        #     df = df.append({'Vext':min(X),'Jext':df['Jext'].iloc[0]},ignore_index=True)
+                        #     df = df.sort_values(by=['Vext'])
+                        f = interpolate.interp1d(df['Vext'], df[exp_format], fill_value='extrapolate', kind='linear')
+                        yfit = f(X)
+                else:
+                    Xfit = X
+                    yfit = exp
         else:
             raise ValueError('Invalid exp_format: '+exp_format)
         
