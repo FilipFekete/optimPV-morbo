@@ -370,6 +370,11 @@ class RateEqAgent(BaseAgent):
             else:
                 for Gfrac in Gfracs:
                     ns_, ps_, t, Gfrac = self._run_single_Gfrac(parameters, Gfrac, QE)
+                    
+                    #check for np.nan in ns_ or ps_
+                    if np.isnan(ns_).any() or np.isnan(ps_).any():
+                        # if something went wrong there is no point in continuing
+                        return np.nan
 
                     try:                   
                         if ns is None:

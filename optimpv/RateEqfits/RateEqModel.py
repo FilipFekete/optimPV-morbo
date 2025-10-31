@@ -709,6 +709,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         alpha = parameters['alpha']
     else:
         raise ValueError('alpha is not in the parameters dictionary')
+
     
     # traps 
     trapsnames = [p for p in pnames if 'N_t_bulk' in p]
@@ -766,6 +767,15 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     else:
         raise ValueError('mu_n and mu_p or mu must be in the parameters dictionary')
     
+    if 'C_auger_n' in pnames and 'C_auger_p' in pnames:
+        C_auger_n = parameters['C_auger_n']
+        C_auger_p = parameters['C_auger_p']
+    elif 'C_auger' in pnames:
+        C_auger_n = parameters['C_auger_n']
+        C_auger_p = parameters['C_auger_p']
+    else:
+        C_auger_n = C_auger_p = 0.0
+
     if 'N_c' in pnames and 'N_v' in pnames:
         N_c = parameters['N_c']
         N_v = parameters['N_v']
@@ -815,9 +825,9 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     for i in range(len(t_span)):
         generation[i] = Gpulse[i] * np.exp(-alpha * z_array) / mean_beer_lambert  # normalize the generation profile
 
-    N_init = N0 *G_frac# initial conditions
-    n0_z = N_init * np.exp(-alpha * z_array) / np.mean(np.exp(-alpha * z_array))
-
+    N_init = N0 * G_frac# initial conditions
+    n0_z = ((N_init * L)/np.trapezoid(np.exp(-alpha * z_array), x=z_array)) * np.exp(-alpha * z_array)
+    
     ## Initial population distribution (uniform for simplicity)
     ## Compute the absorption profile for n (We consider that the n and p diffusion constants are similar... maybe I souldn't), consider constant distribution for the trapped charges at equilibria. 
     ## For now, its constant constant.
@@ -830,7 +840,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     
     # Flatten the initial conditions into a single vector
     P0 = P_init.flatten()
-    arg = [k_direct, Eg, N_t_bulk_list, C_n_bulk_list, C_p_bulk_list, E_t_bulk_list, N_c, N_v, T, D_n, D_p, number_of_traps, grid_size, dz]
+    arg = [k_direct, Eg, N_t_bulk_list, C_n_bulk_list, C_p_bulk_list, E_t_bulk_list, N_c, N_v, T, D_n, D_p, C_auger_n, C_auger_p, number_of_traps, grid_size, dz]
 
     # Compute the second derivative of the populations
     def second_derivative(P, N, dz):
@@ -842,7 +852,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         d2P[-1] = 2*(P[-2] - P[-1]) / (dz ** 2)  # Right boundary (backward difference)
         return d2P
 
-    def model_vect(t, P_flat, kdirect, Eg, Bulk_tr, Bn, Bp, ETrap, Nc, Nv, T, D_n, D_p, number_of_traps, grid_size, dz):
+    def model_vect(t, P_flat, kdirect, Eg, Bulk_tr, Bn, Bp, ETrap, Nc, Nv, T, D_n, D_p, C_auger_n, C_auger_p, number_of_traps, grid_size, dz):
         if P_flat.ndim == 1:
             P_flat = P_flat[:, None]  # make it (n_variables, 1)
 
@@ -869,8 +879,8 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
 
         dPdt = np.zeros_like(P)
 
-        dPdt[0] = - kdirect * (n * p - ni2) - np.sum(e_capture, axis=0) + np.sum(e_emission, axis=0) + D_n * d2n
-        dPdt[1] = - kdirect * (n * p - ni2) - np.sum(h_capture, axis=0) + np.sum(h_emission, axis=0) + D_p * d2p
+        dPdt[0] = - kdirect * (n * p - ni2) - np.sum(e_capture, axis=0) + np.sum(e_emission, axis=0) + D_n * d2n - (C_auger_n * n * n *p + C_auger_p* n*p*p)
+        dPdt[1] = - kdirect * (n * p - ni2) - np.sum(h_capture, axis=0) + np.sum(h_emission, axis=0) + D_p * d2p - (C_auger_n * n * n *p + C_auger_p* n*p*p)
 
         for i in range(number_of_traps):
             dPdt[i+2] = e_capture[i] - e_emission[i] - h_capture[i] + h_emission[i]
@@ -879,7 +889,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
     
     def jacobian_no_flux_vectorized_fixed(t, P_flat, *args):
 
-        kdirect, Eg, Bulk_tr, Bn, Bp, ETrap, Nc, Nv, T, D_n, D_p, number_of_traps, grid_size, dz = args
+        kdirect, Eg, Bulk_tr, Bn, Bp, ETrap, Nc, Nv, T, D_n, D_p, C_auger_n, C_auger_p, number_of_traps, grid_size, dz = args
 
         N_pop = number_of_traps + 2
         nvars = N_pop * grid_size
@@ -901,8 +911,8 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         idx_p = grid_size + np.arange(grid_size)
         idx_traps = [grid_size * (2 + j) + np.arange(grid_size) for j in range(number_of_traps)]
 
-        diag_n = -kdirect * p - sum_Bn_Bulktr_ntr
-        diag_p = -kdirect * n - sum_Bp_ntr
+        diag_n = -kdirect * p - sum_Bn_Bulktr_ntr - (C_auger_n * 2*n * p + C_auger_p * p * p)
+        diag_p = -kdirect * n - sum_Bp_ntr - (C_auger_n * n * n + C_auger_p * 2*p * n)
 
         J = lil_matrix((nvars, nvars))
 
@@ -927,8 +937,9 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         J[idx_n, idx_n] = diag_n
         J[idx_p, idx_p] = diag_p
 
-        J[idx_n, idx_p] = -kdirect * n
-        J[idx_p, idx_n] = -kdirect * p
+        # Radiative and Auger terms
+        J[idx_n, idx_p] = -kdirect * n - (C_auger_n * n * n + C_auger_p * 2*p * n) 
+        J[idx_p, idx_n] = -kdirect * p - (C_auger_n * 2*n * p + C_auger_p * p * p)
 
         for j in range(number_of_traps):
             idx_trap = idx_traps[j]
@@ -945,7 +956,8 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         
         return J.tocsc()
 
-    def model_vect_dimensionless(t, P_flat_d, kdirect, Eg, Bulk_tr_d, Bn, Bp, ETrap, Nc_d, Nv_d, T, D_n, D_p, number_of_traps, grid_size, dz):
+    def model_vect_dimensionless(t, P_flat_d, kdirect, Eg, Bulk_tr_d, Bn, Bp, ETrap, Nc_d, Nv_d, T, 
+                                    D_n, D_p, C_auger_n, C_auger_p, number_of_traps, grid_size, dz):    
         if P_flat_d.ndim == 1:
             P_flat_d = P_flat_d[:, None]  # make it (n_variables, 1)
 
@@ -957,10 +969,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         ntr_d = P[2:]
 
         kT = kb * T
-        #ni2 = Nc_d*Nc_d*np.exp(-Eg/kT)
-        #ni2 = ni2 * np.ones((grid_size, n_times))
-        #ni = ni*np.ones((grid_size, n_times))
-
+        
         # Vectorized capture/emission
         e_capture = Bn[:, None, None] * n_d[None, :, :] * (Bulk_tr_d[:, None, None] - ntr_d)
         h_capture = Bp[:, None, None] * p_d[None, :, :] * ntr_d
@@ -972,9 +981,8 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         d2p = np.array([second_derivative(p_d[:, i], grid_size, dz) for i in range(n_times)]).T
 
         dPdt = np.zeros_like(P)
-
-        dPdt[0] = - kdirect * (n_d * p_d - 1) - np.sum(e_capture, axis=0) + np.sum(e_emission, axis=0) + D_n * d2n
-        dPdt[1] = - kdirect * (n_d * p_d - 1) - np.sum(h_capture, axis=0) + np.sum(h_emission, axis=0) + D_p * d2p
+        dPdt[0] = - kdirect * (n_d * p_d - 1) - np.sum(e_capture, axis=0) + np.sum(e_emission, axis=0) + D_n * d2n - (C_auger_n * n_d * n_d * p_d + C_auger_p * n_d * p_d * p_d)
+        dPdt[1] = - kdirect * (n_d * p_d - 1) - np.sum(h_capture, axis=0) + np.sum(h_emission, axis=0) + D_p * d2p - (C_auger_n * n_d * n_d * p_d + C_auger_p * n_d * p_d * p_d)
 
         for i in range(number_of_traps):
             dPdt[i+2] = (e_capture[i] - e_emission[i] - h_capture[i] + h_emission[i])
@@ -995,9 +1003,9 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         t_span = t_span / tau
         D_n = D_n * tau/(L**2)
         D_p = D_p * tau/(L**2)
-        generation = generation * tau / ni 
-        arg = [k_direct * ni * tau, Eg, N_t_bulk_list/ni, C_n_bulk_list * ni * tau, C_p_bulk_list * ni * tau, E_t_bulk_list, N_c/ni, N_v/ni, T, D_n, D_p, number_of_traps, grid_size, dx]
+        generation = generation * tau / ni
 
+        arg = [k_direct * ni * tau, Eg, N_t_bulk_list/ni, C_n_bulk_list * ni * tau, C_p_bulk_list * ni * tau, E_t_bulk_list, N_c/ni, N_v/ni, T, D_n, D_p, C_auger_n*(ni**2)*tau, C_auger_p*(ni**2)*tau, number_of_traps, grid_size, dx]
     
     t_start = time.time()
     count = 0
