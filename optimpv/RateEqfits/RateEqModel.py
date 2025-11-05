@@ -794,7 +794,7 @@ def DBTD_multi_trap(parameters, t, Gpulse, t_span, N0=0, G_frac = 1, equilibrate
         T = parameters['T']
     else:
         T = 300
-
+    
     # kwargs
     dimensionless = kwargs.get('dimensionless', True)
     grid_size = kwargs.get('grid_size', 100)  # number of grid points

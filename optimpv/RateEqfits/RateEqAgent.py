@@ -277,6 +277,15 @@ class RateEqAgent(BaseAgent):
         else:
             QE = 1
 
+        if 'N0' in parameters.keys():
+            N0 = parameters['N0']
+        elif 'N0' in self.pump_args.keys():
+            N0 = self.pump_args['N0']
+        else:
+            N0 = 0
+        # remove N0 from pump_args if it exists
+        # self.pump_args.pop('N0', None)
+
         Gfracs = []
         got_gfrac_none = False
         len_X = len(self.X[0])
@@ -327,13 +336,18 @@ class RateEqAgent(BaseAgent):
                 dum = dum[1:]
                 t_span = np.hstack((t,dum))
 
+            pump = copy.deepcopy(self.pump_args)
+            if 'G_frac' in pump.keys():
+                pump.pop('G_frac')
+            if 'N0' in pump.keys():
+                pump.pop('N0')
             # get the pump profile
-            Generation = self.pump_model(t_span, **self.pump_args) * QE # multiply by the quantum efficiency
+            Generation = self.pump_model(t_span, **pump) * QE # multiply by the quantum efficiency
             
-            if 'N0' in self.pump_args.keys():
-                N0 = self.pump_args['N0']
-            else:
-                N0 = 0
+            # if 'N0' in self.pump_args.keys():
+            #     N0 = self.pump_args['N0']
+            # else:
+            #     N0 = 0
 
             if 'G_frac' in self.pump_args.keys():
                 G_frac = self.pump_args['G_frac']
@@ -346,7 +360,7 @@ class RateEqAgent(BaseAgent):
             if parallel:
                 num_cores = min(max_jobs, len(Gfracs),os.cpu_count())
 
-                results = Parallel(n_jobs=num_cores,backend="loky")(delayed(self._run_single_Gfrac)(parameters, Gfrac, QE) for Gfrac in Gfracs)
+                results = Parallel(n_jobs=num_cores,backend="loky")(delayed(self._run_single_Gfrac)(parameters, Gfrac, N0,QE) for Gfrac in Gfracs)
 
                 for ns_, ps_, t, Gfrac in results:
                     try:                   
@@ -369,7 +383,7 @@ class RateEqAgent(BaseAgent):
                         return np.nan
             else:
                 for Gfrac in Gfracs:
-                    ns_, ps_, t, Gfrac = self._run_single_Gfrac(parameters, Gfrac, QE)
+                    ns_, ps_, t, Gfrac = self._run_single_Gfrac(parameters, Gfrac, N0, QE)
                     
                     #check for np.nan in ns_ or ps_
                     if np.isnan(ns_).any() or np.isnan(ps_).any():
@@ -707,7 +721,7 @@ class RateEqAgent(BaseAgent):
 
         return Xfit,yfit
 
-    def _run_single_Gfrac(self, parameters, Gfrac, QE):
+    def _run_single_Gfrac(self, parameters, Gfrac, N0, QE):
         t = self.X[0][self.X[0][:,1] == Gfrac,0]
         tmax = 0.99999*1/self.pump_args['fpu']
         t_span = t
@@ -716,13 +730,19 @@ class RateEqAgent(BaseAgent):
             dum = np.linspace(t[-1],tmax,100)
             dum = dum[1:]
             t_span = np.hstack((t,dum))
+        # pump_arg no N0 deepcopy
+        pump = copy.deepcopy(self.pump_args)
+        if 'G_frac' in pump.keys():
+            pump.pop('G_frac')
+        if 'N0' in pump.keys():
+            pump.pop('N0')
 
-        Generation = self.pump_model(t_span, G_frac = Gfrac, **self.pump_args) * QE
+        Generation = self.pump_model(t_span, G_frac = Gfrac, N0=N0, **pump) * QE
         
-        if 'N0' in self.pump_args.keys():
-            N0 = self.pump_args['N0']
-        else:
-            N0 = 0
+        # if 'N0' in self.pump_args.keys():
+        #     N0 = self.pump_args['N0']
+        # else:
+        #     N0 = 0
 
         ns_, ps_ = self.model(parameters, t, Generation, t_span, N0 = N0, equilibrate = self.equilibrate, G_frac = Gfrac, **self.kwargs)
         if type(ns_) is list:

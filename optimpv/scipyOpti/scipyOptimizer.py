@@ -6,7 +6,7 @@ from joblib import Parallel, delayed
 from functools import partial
 from optimpv import *
 from optimpv.general.BaseAgent import BaseAgent
-from scipy.optimize import minimize
+from scipy.optimize import minimize, least_squares
 
 ######### Optimizer Definition #######################################################################
 
@@ -149,7 +149,7 @@ class ScipyOptimizer(BaseAgent):
         ----------
         multi_objective : bool, optional
             Whether to handle multiple objectives, by default False
-        
+
         Returns
         -------
         callable
@@ -316,6 +316,100 @@ class ScipyOptimizer(BaseAgent):
                 bounds=bounds,
                 options=self.options,
                 tol=tol
+            )
+            
+            self.results = result
+            
+            # Update parameter values with the optimal solution
+            param_dict = self.reconstruct_params(result.x)
+            for param in self.params:
+                if param.name in param_dict:
+                    param.value = param_dict[param.name]
+            
+            if self.verbose_logging:
+
+                print(f"Optimization completed with status: {result.message}")
+                print(f"Final objective value: {result.fun}")
+        
+        return result
+
+    def optimize_least_squares(self, multi_objective=False):
+        """
+        Run the optimization process using scipy.optimize.least_squares.
+        
+        Parameters
+        ----------
+        multi_objective : bool, optional
+            Whether to use multi-objective optimization, by default False
+        
+        Returns
+        -------
+        object
+            The optimization results
+        """
+        if self.verbose_logging:
+            print(f"Starting optimization using {self.method} method")
+
+        if self.method not in ['trf', 'dogbox', 'lm']:
+            raise ValueError("Method must be one of 'trf', 'dogbox', or 'lm' for least_squares optimization.")
+        
+        # Create the metrics list
+        if self.all_metrics is None:
+            self.all_metrics = self.create_metrics_list()
+        
+        # Get initial parameter values and bounds using the new method
+        x0, bounds = self.create_search_space(self.params)
+        # Convert bounds format for least_squares (expects separate lower and upper arrays)
+        lower_bounds = [b[0] for b in bounds]
+        upper_bounds = [b[1] for b in bounds]
+        bounds = (lower_bounds, upper_bounds)
+        # Create the objective function
+        objective = self.create_objective(multi_objective=multi_objective)
+        
+        # Run the optimization
+        if not multi_objective:
+            # Single objective optimization
+            result = least_squares(
+                objective,
+                x0,
+                method=self.method,
+                bounds=bounds,
+                **self.options
+            )
+            
+            self.results = result
+            
+            # Update parameter values with the optimal solution
+            param_dict = self.reconstruct_params(result.x)
+            for param in self.params:
+                if param.name in param_dict:
+                    param.value = param_dict[param.name]
+            
+            if self.verbose_logging:
+                print(f"Optimization completed with status: {result.message}")
+                print(f"Final objective value: {result.fun}")
+        else:
+            # For multi-objective, we'll use a weighted sum approach
+            # This is a simplified approach; more advanced methods would be better
+            # for true multi-objective optimization
+            weights = self.kwargs.get('objective_weights', None)
+            if weights is None:
+                weights = np.ones(len(self.all_metrics)) / len(self.all_metrics)
+            else:
+                weights = np.asarray(weights)
+                if len(weights) != len(self.all_metrics):
+                    raise ValueError("Weights length must match the number of metrics.")
+                
+            def weighted_objective(x):
+                obj_values = objective(x)
+                return np.sum(weights * obj_values)
+
+            result = least_squares(
+                weighted_objective,
+                x0,
+                method=self.method,
+                bounds=bounds,
+                **self.options
             )
             
             self.results = result
