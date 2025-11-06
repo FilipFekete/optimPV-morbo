@@ -337,22 +337,21 @@ class RateEqAgent(BaseAgent):
                 t_span = np.hstack((t,dum))
 
             pump = copy.deepcopy(self.pump_args)
-            if 'G_frac' in pump.keys():
-                pump.pop('G_frac')
             if 'N0' in pump.keys():
                 pump.pop('N0')
+            
+            if 'G_frac' in self.pump_args.keys():
+                G_frac = self.pump_args['G_frac']
+            else:
+                G_frac = 1
+
             # get the pump profile
-            Generation = self.pump_model(t_span, **pump) * QE # multiply by the quantum efficiency
+            Generation = self.pump_model(t_span, N0=N0, G_frac=G_frac, **pump) * QE # multiply by the quantum efficiency
             
             # if 'N0' in self.pump_args.keys():
             #     N0 = self.pump_args['N0']
             # else:
             #     N0 = 0
-
-            if 'G_frac' in self.pump_args.keys():
-                G_frac = self.pump_args['G_frac']
-            else:
-                G_frac = 1
 
             ns, ps = self.model(parameters, t, Generation, t_span, N0 = N0, equilibrate = self.equilibrate, G_frac = G_frac, **self.kwargs)
             Gfrac_list = np.ones(len(t))
@@ -730,13 +729,14 @@ class RateEqAgent(BaseAgent):
             dum = np.linspace(t[-1],tmax,100)
             dum = dum[1:]
             t_span = np.hstack((t,dum))
-        # pump_arg no N0 deepcopy
+        
         pump = copy.deepcopy(self.pump_args)
         if 'G_frac' in pump.keys():
             pump.pop('G_frac')
+        
         if 'N0' in pump.keys():
             pump.pop('N0')
-
+        
         Generation = self.pump_model(t_span, G_frac = Gfrac, N0=N0, **pump) * QE
         
         # if 'N0' in self.pump_args.keys():
