@@ -252,7 +252,7 @@ class axBOtorchOptimizer(BaseAgent):
             # Create the generation node
             if i < len(self.models)-1:
                 node = GenerationNode(
-                    node_name=names[i],
+                    name=names[i],
                     generator_specs=[generator_spec],
                     transition_criteria=[
                         MinTrials(threshold=self.n_batches[i]*self.batch_size[i],
@@ -262,7 +262,7 @@ class axBOtorchOptimizer(BaseAgent):
                 )
             else:
                 node = GenerationNode(
-                    node_name=names[i],
+                    name=names[i],
                     generator_specs=[generator_spec],
                 )
 

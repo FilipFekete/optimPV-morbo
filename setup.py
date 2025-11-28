@@ -42,8 +42,8 @@ setuptools.setup(
         'torchaudio>=2.0',
         'emcee>=3.1',
         'pymoo>=0.6',
-        'ax-platform>=1.1.0',
-
+        'ax-platform>=1.2.1',
+        'arviz>=0.15.1',
     ],
     extras_require = {
         'dev': [

@@ -83,7 +83,7 @@ class FitParam():
         self.rescale = rescale
         self.display_name = display_name if display_name else name
         self.unit = unit
-        self.full_name = f"{self.display_name} [{self.unit}]" if unit else self.display_name
+        self.full_name = f"{self.display_name} [{self.unit}]" if unit != '' else self.display_name
         if axis_type is not None:
             self.axis_type = axis_type
         else:

@@ -17,7 +17,7 @@ from pathlib import Path
 project = 'optimpv'
 copyright = '2025, Vincent M. Le Corre, Larry Lüer'
 author = 'Vincent M. Le Corre'
-release = '1.04'
+release = '1.05'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

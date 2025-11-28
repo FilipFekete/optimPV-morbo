@@ -12,6 +12,7 @@ All notebooks
    ../examples/MO_JV_impedance_fakePerovskite.ipynb
    ../examples/JV_fakeOPV_BayesInf.ipynb
    ../examples/JV_fakeOPV_pymoo.ipynb
+   ../examples/Approx_posterior.ipynb
    ../examples/TransferMatrix.ipynb
    ../examples/TransferMatrix_EGBO.ipynb
    ../examples/TransferMatrix_pymoo.ipynb

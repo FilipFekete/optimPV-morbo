@@ -19,6 +19,7 @@ from pymoo.algorithms.moo.moead import MOEAD
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.algorithms.soo.nonconvex.de import DE
 from pymoo.algorithms.soo.nonconvex.pso import PSO
+from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.optimize import minimize
 from pymoo.core.callback import Callback
 from multiprocessing.pool import ThreadPool
@@ -459,7 +460,8 @@ class PymooOptimizer(BaseAgent):
             'MOEAD': MOEAD,
             'GA': GA,
             'DE': DE,
-            'PSO': PSO
+            'PSO': PSO,
+            'CMAES': CMAES
         }
         
         # If algorithm string is not in map, return None or raise warning

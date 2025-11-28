@@ -4,12 +4,23 @@
 
 import numpy as np
 import pandas as pd
-import ax
+import ax, torch
 from ax import *
 from ax.api.configs import RangeParameterConfig, ChoiceParameterConfig
 from ax.core.batch_trial import BatchTrial
 from ax.service.ax_client import ObjectiveProperties
 from ax.core.base_trial import TrialStatus
+from botorch.acquisition.logei import qLogNoisyExpectedImprovement 
+from botorch.acquisition.multi_objective.logei import qLogExpectedHypervolumeImprovement  
+from ax.adapter.transforms.standardize_y import StandardizeY
+from ax.adapter.transforms.unit_x import UnitX
+from ax.adapter.transforms.remove_fixed import RemoveFixed
+from ax.adapter.transforms.log import Log
+from ax.generators.torch.botorch_modular.utils import ModelConfig
+from ax.generators.torch.botorch_modular.surrogate import SurrogateSpec
+from gpytorch.kernels import MaternKernel
+from gpytorch.kernels import ScaleKernel
+from botorch.models import SingleTaskGP
 
 ######### Function Definitions ####################################################################
 
@@ -237,3 +248,36 @@ def get_df_ax_client_metrics(params, ax_client, all_metrics):
             #     else: 
             #         raise ValueError('Trying to rescale a parameter that is not int or float')
     return df
+
+def get_VMLC_default_model_kwargs_list(num_free_params, use_CENTER=False, is_MOO=False):
+    """Get the default model kwargs list that VMLC-PV likes to use. This includes the use of log transforms, standardization of the outputs, and an ARD 5/2 Matern kernel.
+    We also use the qLogNoisyExpectedImprovement acquisition function for single objective optimization and the qLogExpectedHypervolumeImprovement for multi-objective optimization.
+
+    Parameters
+    ----------
+    num_free_params : int
+        Number of free parameters in the model.
+    use_CENTER : bool, optional
+        Whether to use the CENTER model configuration, by default False
+    is_MOO : bool, optional
+        Whether the model is for multi-objective optimization, by default False
+
+    Returns
+    -------
+    list of dict
+        List of model kwargs dictionaries for the Ax/Botorch library.
+    """    
+
+
+    if is_MOO:
+        model_kwargs_list = [{},{"torch_device":torch.device("cuda" if torch.cuda.is_available() else "cpu"),'botorch_acqf_class':qLogExpectedHypervolumeImprovement,'transforms':[RemoveFixed, Log,UnitX, StandardizeY],'surrogate_spec':SurrogateSpec(model_configs=[ModelConfig(botorch_model_class=SingleTaskGP,covar_module_class=ScaleKernel, covar_module_options={'base_kernel':MaternKernel(nu=2.5, ard_num_dims=num_free_params)})])}]
+    else:
+        model_kwargs_list = [{},{"torch_device":torch.device("cuda" if torch.cuda.is_available() else "cpu"),'botorch_acqf_class':qLogNoisyExpectedImprovement,'transforms':[RemoveFixed, Log,UnitX, StandardizeY],'surrogate_spec':SurrogateSpec(model_configs=[ModelConfig(botorch_model_class=SingleTaskGP,covar_module_class=ScaleKernel, covar_module_options={'base_kernel':MaternKernel(nu=2.5, ard_num_dims=num_free_params)})])}]
+
+    if use_CENTER:
+        #add {} at the beginning of the list
+        model_kwargs_list = [{}] + model_kwargs_list
+    return model_kwargs_list
+
+
+

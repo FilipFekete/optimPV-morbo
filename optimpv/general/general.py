@@ -68,7 +68,14 @@ def calc_metric(y,yfit,sample_weight=None,metric_name='mse'):
         epsilon = np.finfo(np.float64).eps
         return  np.sqrt(np.mean(((y-yfit)/np.maximum(np.abs(y),epsilon))**2))
     elif metric_name.lower() == 'maxe':
-        return  max_error(y, yfit)    
+        return  max_error(y, yfit)
+    elif metric_name.lower() == 'nllh':
+        LLH = -1/2 * np.sum((y - yfit)**2 * sample_weight + np.log(2 * np.pi * 1/sample_weight))
+        return -LLH
+    elif metric_name.lower() == 'llh':
+        # the following assumes that sample_weight is actually the precision (1/sigma^2)
+        LLH = -1/2 * np.sum((y - yfit)**2 * sample_weight + np.log(2 * np.pi * 1/sample_weight))
+        return LLH
     else:
         raise ValueError('The metric '+metric_name+' is not implemented.')
 

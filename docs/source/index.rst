@@ -94,6 +94,7 @@ This repository is still under development. If you find any bugs or have any que
    ../examples/JV_fakePerovskite.ipynb
    ../examples/MO_hysteresis_fakePerovskite.ipynb
    ../examples/MO_JV_impedance_fakePerovskite.ipynb
+   ../examples/Approx_posterior.ipynb
    Notebook_gallery_DD
 
 .. toctree::

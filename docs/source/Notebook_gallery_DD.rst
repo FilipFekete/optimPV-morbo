@@ -14,3 +14,4 @@ It contains a collection of Jupyter notebooks that demonstrate various features 
    ../examples/MO_JV_impedance_fakePerovskite.ipynb
    ../examples/JV_fakeOPV_BayesInf.ipynb
    ../examples/JV_fakeOPV_pymoo.ipynb
+   ../examples/Approx_posterior.ipynb

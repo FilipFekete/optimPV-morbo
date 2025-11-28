@@ -375,3 +375,95 @@ class BaseAgent():
                 metrics.append(agent.all_agent_metrics[i])
                 minimizes.append(agent.minimize[i])
         return metrics,minimizes
+
+    def get_bounds_list(self):
+        """Get the bounds list from the agent's parameters
+
+        Returns
+        -------
+        list
+            List of bounds from the agent's parameters
+        """         
+        bounds = [[],[]]
+        for param in self.params:
+            if param.type != 'fixed':
+                bounds[0].append(param.bounds[0])
+                bounds[1].append(param.bounds[1])
+        return bounds
+    
+    def bounds_descale(self, bounds, params):
+        """Descale the bounds to match the Fitparam() objects descaling 
+
+        Parameters
+        ----------
+        bounds : list
+            list of bounds to descale
+
+        params : list of Fitparam() objects
+            list of Fitparam() objects to descale
+
+        Returns
+        -------
+        list
+            list of bounds descaled
+        """    
+        descale_bounds = [[],[]]
+        j = 0
+        for i,param in enumerate(params):
+            if param.type != 'fixed':
+                if param.value_type == 'float':
+                    if param.force_log:
+                        descale_bounds[0].append(np.log10(bounds[0][j]))
+                        descale_bounds[1].append(np.log10(bounds[1][j]))
+                    else:
+                        descale_bounds[0].append(bounds[0][j]/param.fscale)
+                        descale_bounds[1].append(bounds[1][j]/param.fscale)
+                elif param.value_type == 'int':
+                    descale_bounds[0].append(bounds[0][j]/param.stepsize)
+                    descale_bounds[1].append(bounds[1][j]/param.stepsize)
+                else:
+                    descale_bounds[0].append(bounds[0][j])
+                    descale_bounds[1].append(bounds[1][j])
+                j += 1
+        return descale_bounds
+    
+    def rescale_array(self, array, params, param_name):
+        """Rescale the array to match the Fitparam() objects rescaling 
+
+        Parameters
+        ----------
+        array : list
+            list of values to rescale
+
+        params : list of Fitparam() objects
+            list of Fitparam() objects to rescale
+
+        Returns
+        -------
+        list
+            list of values rescaled
+        """    
+        rescale_array = []
+        j = 0
+        for i,param in enumerate(params):
+            if param.name == param_name:
+                if param.type != 'fixed':
+                    if param.value_type == 'float':
+                        if param.force_log:
+                            for val in array:
+                                rescale_array.append(10**val)
+                        else:
+                            for val in array:
+                                rescale_array.append(val*param.fscale)
+                    elif param.value_type == 'int':
+                        for val in array:
+                            rescale_array.append(val*param.stepsize)
+                    else:
+                        for val in array:
+                            rescale_array.append(val)
+                else:
+                    for val in array:
+                        rescale_array.append(val)
+                break
+            
+        return np.asarray(rescale_array)
