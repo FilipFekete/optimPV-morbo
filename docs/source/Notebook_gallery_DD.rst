@@ -15,3 +15,5 @@ It contains a collection of Jupyter notebooks that demonstrate various features 
    ../examples/JV_fakeOPV_BayesInf.ipynb
    ../examples/JV_fakeOPV_pymoo.ipynb
    ../examples/Approx_posterior.ipynb
+   ../examples/Lazy_posterior_degradation.ipynb
+   ../examples/Lazy_posterior_realOPV.ipynb

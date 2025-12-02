@@ -13,6 +13,8 @@ All notebooks
    ../examples/JV_fakeOPV_BayesInf.ipynb
    ../examples/JV_fakeOPV_pymoo.ipynb
    ../examples/Approx_posterior.ipynb
+   ../examples/Lazy_posterior_degradation.ipynb
+   ../examples/Lazy_posterior_realOPV.ipynb
    ../examples/TransferMatrix.ipynb
    ../examples/TransferMatrix_EGBO.ipynb
    ../examples/TransferMatrix_pymoo.ipynb
