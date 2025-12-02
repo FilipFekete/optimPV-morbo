@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="optimpv", 
-    version="v1.04",
+    version="v1.05",
     author="Vincent M. Le Corre",
     author_email="",
     description="optimPV: Optimization & Modeling tools for PV research",
