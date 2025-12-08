@@ -52,7 +52,7 @@ def get_flux_density(Power,wavelength,fpu,Area,alpha):
     
     
     
-def square_pump(t, fpu, pulse_width, P, t0 = 0, background=0,G_frac=1):
+def square_pump(t, fpu, pulse_width, P, t0 = 0, background=0,G_frac=1, **kwargs):
     """Square pump pulse
 
     Parameters
@@ -114,7 +114,7 @@ def gaussian_pulse_norm(t, tpulse, width):
     """    
     return np.exp(-np.power(t - tpulse, 2.) / (2 * np.power(width, 2.)))
 
-def gaussian_pump(t, fpu,  pulse_width, P, t0, background=0, G_frac=1):
+def gaussian_pump(t, fpu,  pulse_width, P, t0, background=0, G_frac=1, **kwargs):
     """Gaussian pump pulse
 
     Parameters

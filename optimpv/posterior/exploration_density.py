@@ -95,11 +95,14 @@ def plot_density_exploration(params, optimizer = None, best_parameters = None, p
             ax = axes[i, j]
             if i == j:
                 # kde plot on the diagonal
-                try:
-                    sns.kdeplot(x=yy, data=df, ax=ax, fill=True, thresh=0, levels=levels, cmap="rocket", color="#03051A", log_scale=log_scale[names.index(xx)])
-                except:
-                    # hystogram if kdeplot fails
+                if not np.issubdtype(df[yy].dtype, np.number) :
                     sns.histplot(x=yy, data=df, ax=ax, color="#03051A", log_scale=log_scale[names.index(xx)])
+                else:
+                    try:
+                        sns.kdeplot(x=yy, data=df, ax=ax, fill=True, thresh=0, levels=levels, cmap="rocket", color="#03051A", log_scale=log_scale[names.index(xx)])
+                    except:
+                        # hystogram if kdeplot fails
+                        sns.histplot(x=yy, data=df, ax=ax, color="#03051A", log_scale=log_scale[names.index(xx)])
 
                 if params_orig is not None:
                     ax.axvline(x=yval, color='yellow', linestyle='-')
@@ -122,11 +125,13 @@ def plot_density_exploration(params, optimizer = None, best_parameters = None, p
 
             elif i > j:
                 kind = 'kde'
-                
+                # check for the type of yy and xx in df if they are categorical or not
+                if not np.issubdtype(df[yy].dtype, np.number) or not np.issubdtype(df[xx].dtype, np.number):
+                    kind = 'scatter'
                 if kind == 'scatter':
                     sns.scatterplot(x=yy, y=xx, data=df, ax=ax, color="#03051A")
-                    ax.set_xscale('log')
-                    ax.set_yscale('log')
+                    # ax.set_xscale('log')
+                    # ax.set_yscale('log')
                 else:
                     try:
                         sns.kdeplot(x=yy, y=xx, data=df, ax=ax, fill=True, thresh=0, levels=levels, cmap="rocket", color="#03051A", log_scale=(log_scale[names.index(yy)], log_scale[names.index(xx)]))

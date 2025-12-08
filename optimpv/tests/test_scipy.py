@@ -56,7 +56,7 @@ def test_SOO_diode_fit():
         exp_format = 'dark' # can be 'dark', 'light' depending on the type of data you have
         use_pvlib = False # if True, use pvlib to calculate the diode model if not use the implementation in DiodeModel.py
 
-        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,compare_type='log')
+        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,transforms='log')
 
         from optimpv.scipyOpti.scipyOptimizer import ScipyOptimizer
         optimizer = ScipyOptimizer(params=params, agents=diode, method='L-BFGS-B', options={}, name='scipy_opti', parallel_agents=True, max_parallelism=os.cpu_count()-1, verbose_logging=True)
@@ -97,7 +97,7 @@ def test_SOO_diode_fit():
         exp_format = 'dark' # can be 'dark', 'light' depending on the type of data you have
         use_pvlib = False # if True, use pvlib to calculate the diode model if not use the implementation in DiodeModel.py
 
-        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,compare_type='log')
+        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,transforms='log')
 
         from optimpv.scipyOpti.scipyOptimizer import ScipyOptimizer
         optimizer = ScipyOptimizer(params=params, agents=diode, method='dogbox', options={}, name='scipy_opti', parallel_agents=True, max_parallelism=os.cpu_count()-1, verbose_logging=True)

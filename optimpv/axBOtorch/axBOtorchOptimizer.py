@@ -89,7 +89,7 @@ from ax.api.client import Client
 from ax.api.configs import RangeParameterConfig, ChoiceParameterConfig
 
 from optimpv.general.BaseAgent import BaseAgent
-from optimpv.posterior.posterior import get_df_from_ax
+from optimpv.axBOtorch.axUtils import get_df_from_ax
 
 ######### Optimizer Definition #######################################################################
 class axBOtorchOptimizer(BaseAgent):

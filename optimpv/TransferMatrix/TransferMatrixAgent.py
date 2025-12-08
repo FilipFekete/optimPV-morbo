@@ -64,9 +64,8 @@ class TransferMatrixAgent(BaseAgent):
             Experimental formats for tracking metrics, by default None.
         tracking_y : array-like or list of array-like, optional
             y values for tracking metrics, by default None.
-        compare_type : str, optional
-            Type of comparison to use for metrics, by default 'linear'.
-            Options: 'linear', 'log', 'normalized', 'normalized_log', 'sqrt'.
+        transforms : str or list of str, optional
+            Type of transformation to apply to data before metric calculation, if a list is provided, transformations are applied sequentially, see optimpv.general.transform_data for options, by default 'linear'.
         name : str, optional
             Name of the agent, by default 'TM'.
 
@@ -80,7 +79,7 @@ class TransferMatrixAgent(BaseAgent):
                  mat_dir=None, spectrum=None, photopic_file=None, exp_format='Jsc', 
                  metric=None, loss=None, threshold=10, minimize=False,
                  tracking_metric=None, tracking_loss=None, tracking_exp_format=None,
-                 tracking_y=None, compare_type='linear', name='TM'):
+                 tracking_y=None, transforms='linear', name='TM'):
     
         self.params = params
         self.y = y
@@ -100,7 +99,7 @@ class TransferMatrixAgent(BaseAgent):
         self.threshold = threshold
         self.minimize = minimize
         self.name = name
-        self.compare_type = compare_type
+        self.transforms = transforms
         self.tracking_metric = tracking_metric
         self.tracking_loss = tracking_loss
         self.tracking_exp_format = tracking_exp_format
@@ -125,13 +124,6 @@ class TransferMatrixAgent(BaseAgent):
         if len(self.metric) != len(self.loss) or len(self.metric) != len(self.threshold) or len(self.metric) != len(self.minimize) or len(self.metric) != len(self.exp_format):
             raise ValueError('metric, loss, threshold, minimize and exp_format must have the same length')
         
-        # for i in range(len(self.metric)):
-        #     if self.metric[i] is None:
-        #         self.metric[i] =         
-        # Validate compare_type
-        if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
-            raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
-
         self.all_agent_metrics = self.get_all_agent_metric_names()       
 
         # Process tracking metrics and losses
@@ -291,8 +283,8 @@ class TransferMatrixAgent(BaseAgent):
             else:
                 result = res_dict[self.exp_format[i]]
                 
-                # Apply data transformation based on compare_type
-                if self.compare_type == 'linear':
+                # Apply data transformation based on transforms
+                if self.transforms == 'linear':
                     if isinstance(self.y, list):
                         metric_value = self.target_metric(self.y[i], result, metric_name=self.metric[i])
                     else:
@@ -302,7 +294,7 @@ class TransferMatrixAgent(BaseAgent):
                     y_true_transformed, y_pred_transformed = transform_data(
                         y_true, 
                         result, 
-                        transform_type=self.compare_type
+                        transforms=self.transforms
                     )
                     
                     # Calculate metric with transformed data
@@ -326,8 +318,8 @@ class TransferMatrixAgent(BaseAgent):
                 if loss_type is None:
                     dum_dict[self.all_agent_tracking_metrics[j]] = self.target_metric(result, metric_name=metric_name)
                 else:
-                    # Apply data transformation based on compare_type
-                    if self.compare_type == 'linear':
+                    # Apply data transformation based on transforms
+                    if self.transforms == 'linear':
                         metric_value = self.target_metric(
                             self.tracking_y[j],
                             result,
@@ -338,7 +330,7 @@ class TransferMatrixAgent(BaseAgent):
                         y_true_transformed, y_pred_transformed = transform_data(
                             self.tracking_y[j], 
                             result, 
-                            transform_type=self.compare_type
+                            transforms=self.transforms
                         )
                         
                         # Calculate metric with transformed data

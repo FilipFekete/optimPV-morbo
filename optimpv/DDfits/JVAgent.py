@@ -54,6 +54,8 @@ class JVAgent(SIMsalabimAgent):
         y values for tracking metrics, by default None.
     tracking_weight : array-like or list of array-like, optional
         Weights for tracking metrics, by default None.
+    transforms : str or list of str, optional
+        Type of transformation to apply to data before metric calculation, if a list is provided, transformations are applied sequentially, see optimpv.general.transform_data for options, by default 'linear'.
     name : str, optional
         Name of the agent, by default 'JV'.
     **kwargs : dict
@@ -62,7 +64,7 @@ class JVAgent(SIMsalabimAgent):
     def __init__(self, params, X, y, session_path, simulation_setup = None, exp_format = ['JV'], 
                  metric = ['mse'], loss = ['linear'], threshold = [100], minimize = [True], 
                  yerr = None, weight = None, tracking_metric = None, tracking_loss = None, 
-                 tracking_exp_format = None, tracking_X = None, tracking_y = None, tracking_weight = None,
+                 tracking_exp_format = None, tracking_X = None, tracking_y = None, tracking_weight = None, transforms = 'linear',
                  name = 'JV', **kwargs):       
 
         self.params = params
@@ -90,6 +92,7 @@ class JVAgent(SIMsalabimAgent):
         self.tracking_X = tracking_X
         self.tracking_y = tracking_y
         self.tracking_weight = tracking_weight
+        self.transforms = transforms
 
         if self.loss is None:
             self.loss = 'linear'
@@ -227,18 +230,12 @@ class JVAgent(SIMsalabimAgent):
             if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
                 raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
         self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()
-        # Add compare_type parameter
-        self.compare_type = self.kwargs.get('compare_type', 'linear')
-        if 'compare_type' in self.kwargs.keys():
-            self.kwargs.pop('compare_type')
+        
+        # Are we doing Gfrac transformations?
         self.do_G_frac_transform = self.kwargs.get('do_G_frac_transform', False)
         if 'do_G_frac_transform' in self.kwargs.keys():
             self.kwargs.pop('do_G_frac_transform')
    
-        # Validate compare_type
-        if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
-            raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
-        
         # check if simulation_setup file exists
         if not os.path.exists(os.path.join(self.session_path,self.simulation_setup)):
             raise ValueError('simulation_setup file does not exist: {}'.format(os.path.join(self.session_path,self.simulation_setup)))
@@ -352,8 +349,8 @@ class JVAgent(SIMsalabimAgent):
         for i in range(len(self.exp_format)):
             Xfit, yfit = self.reformat_JV_data(df, self.X[i], self.exp_format[i])
             
-            # Apply data transformation based on compare_type
-            if self.compare_type == 'linear':
+            # Apply data transformation based on transforms
+            if self.transforms == 'linear':
                 metric_value = self.target_metric(
                     self.y[i],
                     yfit,
@@ -368,7 +365,7 @@ class JVAgent(SIMsalabimAgent):
                     yfit, 
                     X=self.X[i],
                     X_pred=Xfit,
-                    transform_type=self.compare_type,
+                    transforms=self.transforms,
                     do_G_frac_transform=self.do_G_frac_transform
                 )
                 
@@ -391,8 +388,8 @@ class JVAgent(SIMsalabimAgent):
                 
                 Xfit, yfit = self.reformat_JV_data(df, self.tracking_X[j], exp_fmt)
                 
-                # Apply data transformation based on compare_type
-                if self.compare_type == 'linear':
+                # Apply data transformation based on transforms
+                if self.transforms == 'linear':
                     metric_value = self.target_metric(
                         self.tracking_y[j],
                         yfit,
@@ -408,7 +405,7 @@ class JVAgent(SIMsalabimAgent):
                         yfit, 
                         X=self.tracking_X[j],
                         X_pred=Xfit,
-                        transform_type=self.compare_type,
+                        transforms=self.transforms,
                         do_G_frac_transform=self.do_G_frac_transform
                     )
                     

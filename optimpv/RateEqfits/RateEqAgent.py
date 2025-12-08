@@ -79,12 +79,19 @@ class RateEqAgent(BaseAgent):
         y values for tracking metrics, by default None.
     tracking_weight : array-like or list of array-like, optional
         Weights for tracking metrics, by default None.
+    transforms : str or list of str, optional
+        Type of transformation to apply to data before metric calculation, if a list is provided, transformations are applied sequentially, see optimpv.general.transform_data for options, by default 'linear'.
     name : str, optional
         Name of the agent, by default 'RateEq'.
+    equilibrate : bool, optional
+        If True, equilibrate the carrier densities with multiple pulses, by default True.
+    detection_limit : float, optional
+        Detection limit for the model, by default None.
+
     **kwargs : dict
         Additional keyword arguments.
     """    
-    def __init__(self, params, X, y, model = BT_model, pump_model = initial_carrier_density, pump_args = {}, exp_format = 'trPL', fixed_model_args = {}, metric = 'mse', loss = 'linear', threshold = 100, minimize = True, yerr = None, weight = None, tracking_metric = None, tracking_loss = None, tracking_exp_format = None, tracking_X = None, tracking_y = None, tracking_weight = None, name = 'RateEq', equilibrate = True, detection_limit=None,**kwargs):
+    def __init__(self, params, X, y, model = BT_model, pump_model = initial_carrier_density, pump_args = {}, exp_format = 'trPL', fixed_model_args = {}, metric = 'mse', loss = 'linear', threshold = 100, minimize = True, yerr = None, weight = None, tracking_metric = None, tracking_loss = None, tracking_exp_format = None, tracking_X = None, tracking_y = None, tracking_weight = None, transforms='linear', name = 'RateEq', equilibrate = True, detection_limit=None,**kwargs):
 
         self.params = params
         self.X = X # voltage and Gfrac
@@ -105,7 +112,7 @@ class RateEqAgent(BaseAgent):
         self.tracking_X = tracking_X
         self.tracking_y = tracking_y
         self.tracking_weight = tracking_weight
-
+        self.transforms = transforms
         self.yerr = yerr
         self.weight = weight
         self.name = name
@@ -241,17 +248,10 @@ class RateEqAgent(BaseAgent):
             if not len(self.tracking_exp_format) == len(self.tracking_metric) == len(self.tracking_loss):
                 raise ValueError('tracking_exp_format, tracking_metric and tracking_loss must have the same length')
         self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()
-        # Process compare_type parameter
-        self.compare_type = self.kwargs.get('compare_type', 'linear')
-        if 'compare_type' in self.kwargs.keys():
-            self.kwargs.pop('compare_type')
         self.do_G_frac_transform = self.kwargs.get('do_G_frac_transform', False)
         if 'do_G_frac_transform' in self.kwargs.keys():
             self.kwargs.pop('do_G_frac_transform')
    
-        # Validate compare_type
-        if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
-            raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
     
     def run_RateEq(self,parameters):
         """Run the diode model and calculate the loss function
@@ -819,7 +819,7 @@ class RateEqAgent(BaseAgent):
             
             # Transform both true and predicted values together using the enhanced function
             # Pass both X values as well for future extensibility
-            if self.compare_type == 'linear':
+            if self.transforms == 'linear':
                 metric_value = calc_metric(
                 self.y[i],
                 yfit,
@@ -832,7 +832,7 @@ class RateEqAgent(BaseAgent):
                     yfit, 
                     X=self.X[i],
                     X_pred=Xfit,
-                    transform_type=self.compare_type,
+                    transforms=self.transforms,
                     do_G_frac_transform=self.do_G_frac_transform
                 )
             
@@ -860,7 +860,7 @@ class RateEqAgent(BaseAgent):
                     yfit, 
                     X=self.tracking_X[j],
                     X_pred=Xfit,
-                    transform_type=self.compare_type,
+                    transforms=self.transforms,
                     do_G_frac_transform=self.do_G_frac_transform
                 )
                 

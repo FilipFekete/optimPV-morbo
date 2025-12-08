@@ -66,6 +66,8 @@ class CVAgent(SIMsalabimAgent):
         y values for tracking metrics, by default None.
     tracking_weight : array-like or list of array-like, optional
         Weights for tracking metrics, by default None.
+    transforms : str or list of str, optional
+        Type of transformation to apply to data before metric calculation, if a list is provided, transformations are applied sequentially, see optimpv.general.transform_data for options, by default 'linear'.
     name : str, optional
         Name of the agent, by default 'CV'.
     **kwargs : dict
@@ -74,7 +76,7 @@ class CVAgent(SIMsalabimAgent):
     def __init__(self, params, X, y, session_path, Vmin=0.5, Vmax=1.0, V_step=0.1,freq=1e4, G_frac=1, del_V=0.01, 
                  simulation_setup=None, exp_format='CV', metric='mse', loss='linear', threshold=100, minimize=True, 
                  yerr=None, weight=None, tracking_metric=None, tracking_loss=None, tracking_exp_format=None, 
-                 tracking_X=None, tracking_y=None, tracking_weight=None, name='CV', **kwargs):    
+                 tracking_X=None, tracking_y=None, tracking_weight=None, transforms='linear', name='CV', **kwargs):    
 
         self.params = params
         self.session_path = session_path  
@@ -101,6 +103,7 @@ class CVAgent(SIMsalabimAgent):
         self.tracking_X = tracking_X
         self.tracking_y = tracking_y
         self.tracking_weight = tracking_weight
+        self.transforms = transforms
 
         if self.loss is None:
             self.loss = 'linear'
@@ -242,15 +245,6 @@ class CVAgent(SIMsalabimAgent):
         self.all_agent_metrics = self.get_all_agent_metric_names()
         self.all_agent_tracking_metrics = self.get_all_agent_tracking_metric_names()
 
-        # Add compare_type parameter
-        self.compare_type = self.kwargs.get('compare_type', 'linear')
-        if 'compare_type' in self.kwargs.keys():
-            self.kwargs.pop('compare_type')
-            
-        # Validate compare_type
-        if self.compare_type not in ['linear', 'log', 'normalized', 'normalized_log', 'sqrt']:
-            raise ValueError('compare_type must be either linear, log, normalized, normalized_log, or sqrt')
-
         # check if simulation_setup file exists
         if not os.path.exists(os.path.join(self.session_path,self.simulation_setup)):
             raise ValueError('simulation_setup file does not exist: {}'.format(os.path.join(self.session_path,self.simulation_setup)))
@@ -346,8 +340,8 @@ class CVAgent(SIMsalabimAgent):
         for i in range(len(self.exp_format)):
             Xfit, yfit = self.reformat_CV_data(df, self.X[i], exp_format=self.exp_format[i])
             
-            # Apply data transformation based on compare_type
-            if self.compare_type == 'linear':
+            # Apply data transformation based on transforms
+            if self.transforms == 'linear':
                 metric_value = self.target_metric(
                     self.y[i],
                     yfit,
@@ -362,7 +356,7 @@ class CVAgent(SIMsalabimAgent):
                     yfit, 
                     X=self.X[i],
                     X_pred=Xfit,
-                    transform_type=self.compare_type
+                    transforms=self.transforms
                 )
                 
                 # Calculate metric with transformed data
@@ -384,8 +378,8 @@ class CVAgent(SIMsalabimAgent):
                 
                 Xfit, yfit = self.reformat_CV_data(df, self.tracking_X[j], exp_format=exp_fmt)
                 
-                # Apply data transformation based on compare_type
-                if self.compare_type == 'linear':
+                # Apply data transformation based on transforms
+                if self.transforms == 'linear':
                     metric_value = self.target_metric(
                         self.tracking_y[j],
                         yfit,
@@ -401,7 +395,7 @@ class CVAgent(SIMsalabimAgent):
                         yfit, 
                         X=self.tracking_X[j],
                         X_pred=Xfit,
-                        transform_type=self.compare_type
+                        transforms=self.transforms
                     )
                     
                     # Calculate metric with transformed data

@@ -75,7 +75,7 @@ def test_SOO_diode_fit():
         exp_format = 'dark' # can be 'dark', 'light' depending on the type of data you have
         use_pvlib = False # if True, use pvlib to calculate the diode model if not use the implementation in DiodeModel.py
 
-        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,compare_type='log')
+        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,transforms='log')
 
         model_kwargs_list = [{},{"torch_device":torch.device("cuda" if torch.cuda.is_available() else "cpu"),'botorch_acqf_class':qLogNoisyExpectedImprovement,'transforms':[RemoveFixed, Log,UnitX, StandardizeY],'surrogate_spec':SurrogateSpec(model_configs=[ModelConfig(botorch_model_class=SingleTaskGP,covar_module_class=ScaleKernel, covar_module_options={'base_kernel':MaternKernel(nu=2.5, ard_num_dims=len(params))})])}]
 
@@ -322,7 +322,7 @@ def test_MOO_trPLtrMC():
                 idx += 1
                 idx_main += 1
                 
-        RateEq = RateEqAgent(params, [X,X], [y_PL,y_MW], model = BTD_model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = [metric,metric], loss = [loss,loss], threshold=[0.5,0.5],minimize=[True,True],exp_format=['trPL','trMC'],detection_limit=1e-5, weight=[weight_PL,weight_MW], compare_type ='log')
+        RateEq = RateEqAgent(params, [X,X], [y_PL,y_MW], model = BTD_model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = [metric,metric], loss = [loss,loss], threshold=[0.5,0.5],minimize=[True,True],exp_format=['trPL','trMC'],detection_limit=1e-5, weight=[weight_PL,weight_MW], transforms ='log')
 
         model_gen_kwargs_list = None
         parameter_constraints = None
@@ -427,7 +427,7 @@ def test_SOO_TurBO():
         loss = 'linear' # 'nrmse' or 'mse' or 'soft_l1' or 'linear'
         pump_args = {'N0': N0, 'fpu': fpu , 'background' : background, }
         exp_format = 'trPL' # experiment format
-        RateEq = RateEqAgent(params, [X], [y], model = DBTD_model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  compare_type ='log')
+        RateEq = RateEqAgent(params, [X], [y], model = DBTD_model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  transforms ='log')
 
         model_gen_kwargs_list = None
         parameter_constraints = None
@@ -712,7 +712,8 @@ def test_multi_trap():
         loss = 'linear' # 'nrmse' or 'mse' or 'soft_l1' or 'linear'
         pump_args = {'N0': N0, 'fpu': fpu , 'background' : background, }
         exp_format = 'trPL' # experiment format
-        RateEq = RateEqAgent(params, [X], [y], model = DBTD_multi_trap, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  compare_type ='normalized_log',do_G_frac_transform=True)
+        model = partial(DBTD_multi_trap, method='LSODA', dimensionless=False, timeout=30, timeout_solve=30)
+        RateEq = RateEqAgent(params, [X], [y], model = model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  transforms =['normalize','log'], do_G_frac_transform=True)
 
         model_gen_kwargs_list = None
         # Here we add some constraints to the parameters to help the optimizer
@@ -823,7 +824,7 @@ def test_diff_rec():
         loss = 'linear' # 'nrmse' or 'mse' or 'soft_l1' or 'linear'
         pump_args = {'N0': N0, 'fpu': fpu , 'background' : background, }
         exp_format = 'trPL' # experiment format
-        RateEq = RateEqAgent(params, [X], [y], model = DBTD_model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  compare_type ='log')
+        RateEq = RateEqAgent(params, [X], [y], model = DBTD_model, pump_model = initial_carrier_density, pump_args = pump_args, fixed_model_args = {}, metric = metric, loss = loss,minimize=True,exp_format=exp_format,detection_limit=0e-5,  transforms='log')
 
         model_gen_kwargs_list = None
         parameter_constraints = None

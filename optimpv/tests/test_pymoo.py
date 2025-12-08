@@ -60,7 +60,7 @@ def test_SOO_diode_fit_pymoo():
         exp_format = 'dark' # can be 'dark', 'light' depending on the type of data you have
         use_pvlib = False # if True, use pvlib to calculate the diode model if not use the implementation in DiodeModel.py
 
-        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,compare_type='log')
+        diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,transforms='log')
 
         # Create PymooOptimizer for single-objective optimization
         optimizer = PymooOptimizer(params=params, agents=[diode], algorithm='GA', pop_size=10, n_gen=10, name='pymoo_single_obj', verbose_logging=False)

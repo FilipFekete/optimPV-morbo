@@ -256,7 +256,7 @@ def direct_mean_euclidean_distance(X_true, y_true, X_fit, y_fit):
 
     return np.mean(dists)
 
-def transform_data(y, y_pred, X=None, X_pred=None, transform_type='linear', epsilon=None, do_G_frac_transform=False):
+def transform_data_old(y, y_pred, X=None, X_pred=None, transform_type='linear', epsilon=None, do_G_frac_transform=False):
     """Transform data according to specified transformation type
     
     Parameters
@@ -393,3 +393,140 @@ def transform_data(y, y_pred, X=None, X_pred=None, transform_type='linear', epsi
             return y_transformed, y_pred_transformed
         else:
             raise ValueError(f'The transformation type {transform_type} is not implemented.')
+        
+def transform_data(y, y_pred, X=None, X_pred=None, transforms='linear', epsilon=None, do_G_frac_transform=False):
+    """Transform data according to specified transformation type
+    
+    Parameters
+    ----------
+    y : array-like
+        True values to transform
+    y_pred : array-like
+        Predicted values to transform alongside y
+    X : array-like, optional
+        X coordinates of true values, by default None
+    X_pred : array-like, optional
+        X coordinates of predicted/fitted values, by default None
+    transform_type : str or list of str, optional
+        Type of transformation to apply, if a list is provided, transformations are applied sequentially, by default 'linear'
+        Possible values are:
+        
+            - 'linear': No transformation
+            - 'log': Log10 transformation of absolute values
+            - 'normalize': Division by maximum value
+            - 'sqrt': Square root transformation
+    epsilon : float, optional
+        Small value to add to avoid log(0), by default the machine epsilon for float64
+    do_G_frac_transform : bool, optional
+        Whether to apply a specific transformation based on the second column of X, by default False
+        
+    Returns
+    -------
+    tuple of array-like
+        (y_transformed, y_pred_transformed)
+    
+    Raises
+    ------
+    ValueError
+        If the transformation type is not implemented
+    """
+    # Make deep copies
+    y_t = np.copy(y)
+    ypred_t = np.copy(y_pred)
+
+    if epsilon is None:
+        epsilon = np.finfo(np.float64).eps
+
+    # Coerce to list
+    if isinstance(transforms, str):
+        transform_list = [transforms.lower()]
+    else:
+        transform_list = [t.lower() for t in transforms]
+
+    # --- Extract G-fracs if needed ---
+    Gfracs = None
+    if do_G_frac_transform and X is not None and X.shape[1] >= 2:
+        Gfracs, index = np.unique(X[:, 1], return_index=True)
+        if len(Gfracs) == 1:
+            Gfracs = None
+        else:
+            Gfracs = Gfracs[np.argsort(index)]
+
+    # --- Helper transforms ---
+
+    def t_linear(a, b, mask=None):
+        return a, b
+
+    def t_log(a, b, mask=None):
+        if mask is None:
+            a = np.abs(a)
+            b = np.abs(b)
+            a[a <= 0] = epsilon
+            b[b <= 0] = epsilon
+            return np.log10(a), np.log10(b)
+        else:
+            sel_a = np.abs(a[mask])
+            sel_b = np.abs(b[mask])
+            sel_a[sel_a <= 0] = epsilon
+            sel_b[sel_b <= 0] = epsilon
+            a[mask] = np.log10(sel_a)
+            b[mask] = np.log10(sel_b)
+            return a, b
+
+    def t_sqrt(a, b, mask=None):
+        if mask is None:
+            a = np.maximum(a, 0)
+            b = np.maximum(b, 0)
+            return np.sqrt(a), np.sqrt(b)
+        else:
+            a[mask] = np.sqrt(np.maximum(a[mask], 0))
+            b[mask] = np.sqrt(np.maximum(b[mask], 0))
+            return a, b
+
+    def t_normalized(a, b, mask=None):
+        if mask is None:
+            return a / np.max(a), b / np.max(b)
+        else:
+            if np.max(a[mask]) > 0:
+                a[mask] = a[mask] / np.max(a[mask])
+            else:
+                return np.nan * np.ones_like(a), np.nan * np.ones_like(b)
+            if np.max(b[mask]) > 0:
+                b[mask] = b[mask] / np.max(b[mask])
+            else:
+                return np.nan * np.ones_like(a), np.nan * np.ones_like(b)
+            return a, b
+    
+    def t_abs(a, b, mask=None):
+        if mask is None:
+            return np.abs(a), np.abs(b)
+        else:
+            a[mask] = np.abs(a[mask])
+            b[mask] = np.abs(b[mask])
+            return a, b
+
+    # Mapping: normalized_log is intentionally removed
+    TRANSFORMS = {
+        'linear': t_linear,
+        'log': t_log,
+        'sqrt': t_sqrt,
+        'normalize': t_normalized,
+        'abs': t_abs
+    }
+
+    # --- Apply transforms sequentially ---
+    for tname in transform_list:
+        if tname not in TRANSFORMS:
+            raise ValueError(f'Transformation {tname} is not implemented.')
+
+        transform_fn = TRANSFORMS[tname]
+
+        if do_G_frac_transform and Gfracs is not None:
+            for G in Gfracs:
+                mask = (X[:, 1] == G)
+                y_t, ypred_t = transform_fn(y_t, ypred_t, mask=mask)
+        else:
+            y_t, ypred_t = transform_fn(y_t, ypred_t)
+
+    return y_t, ypred_t
+
