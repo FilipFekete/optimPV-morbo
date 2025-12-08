@@ -1,29 +1,74 @@
 name: Docs
 on: [push, pull_request, workflow_dispatch]
 permissions:
-    contents: write
+  contents: write
 jobs:
   convert_via_pandoc:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
+      - name: Pre-check disk usage
+        run: |
+          echo "Disk usage before cleanup"
+          df -h
+          du -sh /home/runner || true
+
+      - name: Free up disk space
+        # best-effort cleanup to avoid No space left on device
+        run: |
+          sudo apt-get clean -y || true
+          sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* || true
+          # remove common large toolchains not used in most doc builds
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          # clear system docker images if present (may be a no-op)
+          docker image prune -a -f || true
+          # remove cached toolchains and pip cache
+          rm -rf ~/.cache/pip || true
+          rm -rf ~/.cache/pre-commit || true
+          # show freed space
+          echo "Disk usage after cleanup"
+          df -h
+
       - uses: actions/setup-python@v3
         with:
           python-version: 3.13
+
       - uses: r-lib/actions/setup-pandoc@v2
+
       - name: Test Pandoc
         run: |
           pandoc --version
-      - name: Install dependencies
+
+      - name: Install dependencies (no pip cache, minimal)
+        env:
+          PIP_NO_CACHE_DIR: "1"
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
         run: |
-          pip install sphinx sphinx_rtd_theme sphinx-gallery nbsphinx sphinx_copybutton sphinx-notfound-page docutils readthedocs-sphinx-search pandoc pytest plotly myst-parser
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip setuptools wheel
+          # Install lightweight project dependencies first from requirements if present
+          if [ -f requirements.txt ]; then
+            pip install --no-cache-dir -r requirements.txt || true
+          fi
+          # Install Sphinx and docs toolchain without caching wheels
+          pip install --no-cache-dir sphinx sphinx_rtd_theme sphinx-gallery nbsphinx \
+            sphinx_copybutton sphinx-notfound-page docutils readthedocs-sphinx-search \
+            pandoc pytest plotly myst-parser || true
+
+      - name: Show disk usage after installs
+        run: |
+          echo "Disk usage after pip installs"
+          df -h
+          du -sh /home/runner || true
+
       - name: Build
         run: |
           python setup.py build
+
       - name: Sphinx build
         run: |
           sphinx-build docs/source docs/build
+
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
