@@ -11,7 +11,9 @@ v1.05 - 2025-10-28 - VMLC-PV
 - scipyOptimizer: Added optimize_least_squares method to perform optimization using the least squares method from scipy. This is useful for fitting problems and can provide better results than the standard scipy.optimize.minimize method for certain problems.
 - posterior: Added new posibility to calculate the approximate posterior distributions with approx_posteriot.py and lazy_posterior.py. posterior.py will be retired soon. exploration_density.py was created to keep the density exploration plotting functions.
 - general.py: Changed the way to specify transformations for the data. We use to have compare_type in all the agents. Now we can specify transfroms as a string or a list of strings in the transform_data function. The available transforms are: 'log', 'linear', 'abs', 'normalize'. The default is 'linear' if nothing is specified. This change was made to make the code more consistent and easier to use across all agents.
+- New data and Notebooks for testing the JVAgent with QFLS vs Vext curves.
 - New and updated Notebooks for the new functionalities.
+- update requirements for ax-platform to 1.2.1
 
 v1.04 - 2025-09-25 - VMLC-PV
 -----------------------------

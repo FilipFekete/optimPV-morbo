@@ -26,6 +26,7 @@ from multiprocessing.pool import ThreadPool
 from pymoo.core.problem import StarmapParallelization
 from pymoo.core.population import Population
 from pymoo.core.individual import Individual
+from pymoo.util.ref_dirs import get_reference_directions
 
 from logging import Logger
 # from ax.utils.common.logger import get_logger, _round_floats_for_logging
@@ -477,6 +478,18 @@ class PymooOptimizer(BaseAgent):
         if self.algorithm in ['NSGA2', 'NSGA3', 'MOEAD']:
             # Multi-objective algorithms
             default_kwargs = {'pop_size': self.pop_size}
+            if self.algorithm == 'NSGA3':
+                # For NSGA3, we need to set the number of reference directions
+                n_obj = len(self.all_metrics)
+                ref_dirs = get_reference_directions("uniform", n_obj, n_partitions=12)
+                default_kwargs['ref_dirs'] = ref_dirs
+            elif self.algorithm == 'MOEAD': 
+                # For MOEAD, we need to set the reference directions as well
+                n_obj = len(self.all_metrics)
+                ref_dirs = get_reference_directions("uniform", n_obj, n_partitions=12)
+                default_kwargs = {'ref_dirs': ref_dirs, 'n_neighbors': 15, 'prob_neighbor_mating': 0.7}
+
+
         else:
             # Single-objective algorithms
             default_kwargs = {'pop_size': self.pop_size}

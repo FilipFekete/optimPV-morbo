@@ -115,7 +115,7 @@ class JVAgent(SIMsalabimAgent):
 
         # check that all elements in exp_format are valid
         for JV_form in self.exp_format:
-            is_valid = (JV_form == 'JV' or re.match(r'^QFLSL-?\d+$', JV_form))
+            is_valid = (JV_form == 'JV' or re.match(r'^QFLSL-?\d+$', JV_form) or re.match(r'^K_QFLSL-?\d+$', JV_form))
     
             if not is_valid:
                 raise ValueError(f'{JV_form} is an invalid JV format. Possible values are: JV or QFLSL followed by an integer (e.g., QFLSL1, QFLSL2, etc.)')
@@ -571,7 +571,8 @@ class JVAgent(SIMsalabimAgent):
 
         if X is None:
             X = self.X[0]
-
+        if 'T' in parameters.keys():
+            self.T = parameters['T']
         # reformat the data
         Xfit, yfit = self.reformat_JV_data(df, X, exp_format)
 
@@ -678,6 +679,108 @@ class JVAgent(SIMsalabimAgent):
                 else:
                     Xfit = X
                     yfit = Jext
+        elif re.match(r'^K_QFLSL-?\d+$', exp_format):
+            # the format below is to match the Voltage vs QFLS as described in:
+            # Grabowski, D., Liu, Z., Schöpe, G., Rau, U. and Kirchartz, T. (2022)
+            # Fill Factor Losses and Deviations from the Superposition Principle in Lead Halide Perovskite Solar Cells. Sol. RRL, 6: 2200507. 
+            # https://doi.org/10.1002/solr.202200507
+            if 'Gfrac' in df.columns:
+                Gfracs, indices = np.unique(X[:,1], return_index=True)
+                Gfracs = Gfracs[np.argsort(indices)] # unsure the order of the Gfracs is the same as they are in X 
+                # get layer number after K_QFLSL
+                m = re.match(r'^K_QFLSL(-?)(\d+)$', exp_format)
+                sign = m.group(1)   # '' or '-'
+                value = int(m.group(2))
+                for Gfrac in Gfracs:
+                    df_dum = copy.deepcopy(df[df['Gfrac'] == Gfrac])
+                    # reset index
+                    df_dum = df_dum.reset_index(drop=True)
+                    Vext = np.asarray(df_dum['Vext'].values)
+                    Jext = np.asarray(df_dum['Jext'].values)
+                    G = np.ones_like(Vext)*Gfrac
+                    Voc_dum = np.interp(0, Jext, Vext)
+                    idx_Voc = (np.abs(df_dum['Vext']-Voc_dum)).idxmin()
+                    JdirOC = df_dum['JdirL'+sign+str(value)].iloc[idx_Voc]
+                    kb = constants.value(u'Boltzmann constant in eV/K')
+                    # check if self as T attribute
+                    if hasattr(self, 'T'):
+                        T = self.T
+                    else:
+                        T = float(self.SIMsalabim_params['setup']['T'])
+                    QFLS = kb*T* np.log(df_dum['JdirL'+sign+str(value)].values / JdirOC) + Voc_dum
+
+                    # check if all points from X[:,0] and data['Vext'].values are the same
+                    do_interp = True
+                    if len(X[X[:,1]==Gfrac,0]) == len(Vext) :
+                        if np.allclose(X[X[:,1]==Gfrac,0], Vext):
+                            do_interp = False
+                    if do_interp:
+                        # Do interpolation in case SIMsalabim did not return the same number of points 
+                        # if Vext[0] >
+                        try:
+                            tck = interpolate.splrep(Vext, QFLS, s=0)
+                            if len(Xfit) == 0:
+                                Xfit = np.vstack((Vext,G)).T
+                                yfit = interpolate.splev(X[X[:,1]==Gfrac,0], tck, der=0, ext=0)
+                            else:
+                                Xfit = np.vstack((Xfit,np.vstack((Vext,G)).T))
+                                yfit = np.hstack((yfit,interpolate.splev(X[X[:,1]==Gfrac,0], tck, der=0, ext=0)))
+                            
+                        except Exception as e:
+                            # if min(X[X[:,1]==Gfrac,0])- 0.025 < min(Vext):
+                            #     # add a point at the beginning of the JV curve
+                            #     Vext
+                            f = interpolate.interp1d(Vext, QFLS, fill_value='extrapolate', kind='linear')
+                            if len(Xfit) == 0:
+                                Xfit = np.vstack((Vext,G)).T
+                                yfit = f(X[X[:,1]==Gfrac,0])
+                            else:
+                                Xfit = np.vstack((Xfit,np.vstack((Vext,G)).T))
+                                yfit = np.hstack((yfit,f(X[X[:,1]==Gfrac,0])))
+                    else:
+                        if len(Xfit) == 0:
+                            Xfit = np.vstack((Vext,G)).T
+                            yfit = QFLS
+                        else:
+                            Xfit = np.vstack((Xfit,np.vstack((Vext,G)).T))
+                            yfit = np.hstack((yfit,QFLS))
+            else:
+                Vext = np.asarray(df['Vext'].values)
+                Jext = np.asarray(df['Jext'].values)
+                G = np.ones_like(Vext)
+                Voc_dum = np.interp(0, Jext, Vext)
+                idx_Voc = (np.abs(df['Vext']-Voc_dum)).idxmin()
+                JdirOC = df['JdirL'+sign+str(value)].iloc[idx_Voc]
+                kb = constants.value(u'Boltzmann constant in eV/K')
+                # check if self as T attribute
+                if hasattr(self, 'T'):
+                    T = self.T
+                else:
+                    T = self.dev_par['T']
+                QFLS = kb*T* np.log(df['JdirL'+sign+str(value)].values / JdirOC) + Voc_dum
+
+                # check if all points from X[:,0] and data['Vext'].values are the same
+                do_interp = True
+                if len(X) == len(Vext) :
+                    if np.allclose(X[:,0], Vext):
+                        do_interp = False
+
+                if do_interp:
+                    # Do interpolation in case SIMsalabim did not return the same number of points 
+                    try:
+                        tck = interpolate.splrep(Vext, QFLS, s=0)
+                        yfit = interpolate.splev(X, tck, der=0, ext=0)
+                    except:
+                        # if min(X)- 0.025 < min(Vext):
+                        #     # add a point at the beginning of the JV curve
+                        #     df = df.append({'Vext':min(X),'Jext':df['Jext'].iloc[0]},ignore_index=True)
+                        #     df = df.sort_values(by=['Vext'])
+                        f = interpolate.interp1d(df['Vext'], QFLS, fill_value='extrapolate', kind='linear')
+                        yfit = f(X)
+                else:
+                    Xfit = X
+                    yfit = QFLS
+
         elif exp_format in df.columns:
             if 'Gfrac' in df.columns:
                 Gfracs, indices = np.unique(X[:,1], return_index=True)

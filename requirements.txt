@@ -1,6 +1,6 @@
 pySIMsalabim>=1.3
 scikit-optimize
-ax-platform>=1.1.0
+ax-platform>=1.2.1
 torch
 torchvision
 torchaudio
