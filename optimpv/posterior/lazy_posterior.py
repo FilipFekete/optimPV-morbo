@@ -16,7 +16,7 @@ class LazyPosterior(BaseAgent):
 
 
 
-    def __init__(self, params, df, outcome_name, best_params = None, is_nat_scale = False, **kwargs):
+    def __init__(self, params, df, outcome_name, best_params = None, is_nat_scale = False, maximize=True, **kwargs):
         """ LazyPosterior class object to visualize the approximate posterior.
 
         Parameters
@@ -33,6 +33,8 @@ class LazyPosterior(BaseAgent):
             Dictionary of best parameter values, by default None
         is_nat_scale : bool, optional
             Indicates if the parameters are in natural scale, by default False
+        maximize : bool, optional
+            Indicates if the outcome is to be maximized, by default True
         """          
         
         self.params = params
@@ -59,6 +61,14 @@ class LazyPosterior(BaseAgent):
             self.df = df
             self.true_best_params = self.params_rescale(best_params, params)
             self.best_params = best_params
+        # add the fixed parameters to the true_best_params and true_df
+        for p in self.params:
+            if p.type == 'fixed':
+                self.true_best_params[p.name] = p.value
+                self.true_df[p.name] = p.value*len(self.true_df)
+
+        self.maximize = maximize
+        self.ascending = not maximize
 
         
         
@@ -522,7 +532,7 @@ class LazyPosterior(BaseAgent):
         x_best_params_list = []
         for i in range(num):
             x_best_params = copy.deepcopy(self.params)
-            sorted_df = self.true_df.sort_values(by=self.outcome_name, ascending=False).reset_index()
+            sorted_df = self.true_df.sort_values(by=self.outcome_name, ascending=self.ascending).reset_index()
             dum_params = copy.deepcopy(self.params)
             for p in dum_params:
                 p.value = sorted_df.loc[i][p.name]
@@ -554,6 +564,7 @@ class LazyPosterior(BaseAgent):
         dum_params = copy.deepcopy(self.params)
         params_list_dic = {}
         for p in self.params:
+            
             dum_params_values = []
             for params in x_best_params_list:
                 for param in params:

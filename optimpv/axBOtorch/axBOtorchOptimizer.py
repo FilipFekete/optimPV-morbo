@@ -551,7 +551,7 @@ class axBOtorchOptimizer(BaseAgent):
                     if verbose_logging:
                         logging_level = 20
                         logger.setLevel(logging_level)
-                        logger.info(f"Trial {trial_index_} completed with results: {raw_data} and parameters: {parameters[idx]}")
+                        logger.info(f"Trial {trial_index_} completed with results: {raw_data}")# and parameters: {parameters[idx]}")
                     self.ax_client.complete_trial(trial_index_, raw_data=raw_data)
                 else:
                     if verbose_logging:
@@ -687,8 +687,17 @@ class axBOtorchOptimizer(BaseAgent):
             raise ValueError('Turbo does not support outcome constraints')  
         
         # check if we have a single objective
+        got_MOO = False
         if "," in objective:  # Multiple objectives in string format
-            raise ValueError('Turbo only supports single objective optimization')
+            got_MOO = True
+            logger.warning(r'//!\\ Turbo normally only supports single objective optimization, but multiple objectives were provided. The mean of the objectives will be used.')
+            # check that all objectives are to be minimized or maximized
+            obj_list = objective.split(',')
+            first_minimize = obj_list[0].startswith('-')
+            for obj in obj_list[1:]:
+                if obj.startswith('-') != first_minimize:
+                    raise ValueError('Turbo only supports single objective optimization with all objectives to be minimized or maximized')
+            # raise ValueError('Turbo only supports single objective optimization')
         
         # check if we minimize (objective string starts with -)
         minimize = objective.startswith('-')
@@ -798,7 +807,18 @@ class axBOtorchOptimizer(BaseAgent):
                             main_results[pi].update(res)
 
                 # Only keep values from result dictionary that are in all_metrics
-                Y_turbo = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
+                if not got_MOO:
+                    Y_turbo = torch.tensor([[res[self.all_metrics[0]]] for res in main_results], device=device, dtype=dtype)
+                    Y_turbo_all = copy.deepcopy(Y_turbo)
+                else:# take mean metric value
+                    Y_turbo = torch.tensor([[np.mean([res[metric] for metric in self.all_metrics])] for res in main_results], device=device, dtype=dtype)
+                    # do the same than tracking
+                    tracking_data = [
+                                [res.get(metric, float('nan')) for metric in self.all_metrics]
+                                for res in main_results
+                            ]
+                    if tracking_data:
+                        Y_turbo_all = torch.tensor(tracking_data, device=device, dtype=dtype)
                 # multiplication factor
                 Y_turbo = fac*Y_turbo
 
@@ -807,6 +827,7 @@ class axBOtorchOptimizer(BaseAgent):
                 count_failure += nan_idx.sum().item()
                 # remove nan from Y_turbo and X_turbo
                 Y_turbo = Y_turbo[~nan_idx]
+                Y_turbo_all = Y_turbo_all[~nan_idx]
                 X_turbo = X_turbo[~nan_idx]
 
                 # Also collect tracking metrics if they exist
@@ -931,7 +952,18 @@ class axBOtorchOptimizer(BaseAgent):
                                 main_results[pi].update(res)
 
                     # Only keep values from result dictionary that are in all_metrics
-                    Y_next = torch.tensor([[res[metric] for metric in self.all_metrics] for res in main_results], device=device, dtype=dtype)
+                    if not got_MOO:
+                        Y_next = torch.tensor([[res[self.all_metrics[0]]] for res in main_results], device=device, dtype=dtype)
+                        Y_next_all = copy.deepcopy(Y_next)
+                    else: # take mean metric value
+                        Y_next = torch.tensor([[np.mean([res[metric] for metric in self.all_metrics])] for res in main_results], device=device, dtype=dtype)
+                        tracking_data = [
+                                    [res.get(metric, float('nan')) for metric in self.all_metrics]
+                                    for res in main_results
+                                ]
+                        if tracking_data:
+                            Y_next_all = torch.tensor(tracking_data, device=device, dtype=dtype)
+                            # Y_next_all = torch.tensor([[[res[metric] for metric in self.all_metrics]] for res in main_results], device=device, dtype=dtype)
                     # multiplication factor
                     Y_next = fac*Y_next
 
@@ -940,6 +972,7 @@ class axBOtorchOptimizer(BaseAgent):
                     count_failure += nan_idx.sum().item()
                     # remove nan from Y_next and X_next
                     Y_next = Y_next[~nan_idx]
+                    Y_next_all = Y_next_all[~nan_idx]
                     X_next = X_next[~nan_idx]
                     
                     if Y_next.shape[0] != 0: # if we have at least one non-nan value
@@ -967,6 +1000,7 @@ class axBOtorchOptimizer(BaseAgent):
                         # Append data
                         X_turbo = torch.cat((X_turbo, X_next), dim=0)
                         Y_turbo = torch.cat((Y_turbo, Y_next), dim=0)
+                        Y_turbo_all = torch.cat((Y_turbo_all, Y_next_all), dim=0)
                         if Y_tracking is not None and Y_next_tracking is not None:
                             Y_tracking = torch.cat((Y_tracking, Y_next_tracking), dim=0)
                         elif Y_next_tracking is not None:
@@ -978,7 +1012,7 @@ class axBOtorchOptimizer(BaseAgent):
                     if verbose_logging:
                         logging_level = 20
                         logger.setLevel(logging_level)
-                        logger.info(f"Finished Turbo batch {count_batch} with {state.batch_size} trials with current best value: {fac*state.best_value:.2e}, TR length: {state.length:.2e}")
+                        logger.info(f"Finished Turbo batch {count_batch} with {state.batch_size} trials with current best value: {fac*state.best_value:.4e}, TR length: {state.length:.2e}")
                     
                     count_batch += 1
                 except Exception as e:
@@ -1097,7 +1131,7 @@ class axBOtorchOptimizer(BaseAgent):
             # add all_metrics and tracking_metrics to ax
             raw_data = {}
             for j in range(len(self.all_metrics)):
-                raw_data[self.all_metrics[j]] = fac*Y_turbo[i][j].item()
+                raw_data[self.all_metrics[j]] = Y_turbo_all[i][j].item()
             if Y_tracking is not None:
                 for j in range(len(self.all_tracking_metrics)):
                     raw_data[self.all_tracking_metrics[j]] = Y_tracking[i][j].item()
