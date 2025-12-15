@@ -83,3 +83,17 @@ sudo apt install parallel
 
 ## Disclaimer
 This repository is still under development. If you find any bugs or have any questions, please contact us.
+
+### Morbo setup 
+
+
+```bash
+conda create -n optimpv python=3.12
+conda activate optimpv 
+# navigate to optimpv repository
+pip install -e . 
+# if running notebooks ipykernel is missing 
+conda install ipykernel -y
+# register kernel
+python -m ipykernel install --user --name optimpv --display-name "Python (optimpv)"
+```

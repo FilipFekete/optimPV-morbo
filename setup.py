@@ -12,7 +12,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     license="GPLv3",
     url="https://github.com/openPV-lab/optimPV",
-    download_url="https://github.com/openPV-lab/optimPV/archive/refs/tags/v1.05.tar.gz",
+    download_url="https://github.com/openPV-lab/optimPV/v1.05.tar.gz",
     packages=setuptools.find_packages(),
     keywords=[
         "Bayesian optimization",

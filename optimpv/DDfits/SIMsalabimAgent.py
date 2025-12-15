@@ -275,6 +275,28 @@ class SIMsalabimAgent(BaseAgent):
                 else:
                     cmd_pars.append({'par': layer+'.N_anion', 'val': str(value)})
                     cmd_pars.append({'par': layer+'.N_cation', 'val': str(value)})
+            elif par == 'C_anion': # this is a special case where anions are actually free to move and cations are fixed btu have the same density, since we can't fix the other ones like in the old SIMsalabim version we actually set N_D instead of N_cation 
+                if param.value_type == 'float' and not no_transform:
+                    if param.force_log:
+                        cmd_pars.append({'par': layer+'.N_anion', 'val': str(10**value)})
+                        cmd_pars.append({'par': layer+'.N_D', 'val': str(10**value)})
+                    else:
+                        cmd_pars.append({'par': layer+'.N_anion', 'val': str(value*param.fscale)})
+                        cmd_pars.append({'par': layer+'.N_D', 'val': str(value*param.fscale)})
+                else:
+                    cmd_pars.append({'par': layer+'.N_anion', 'val': str(value)})
+                    cmd_pars.append({'par': layer+'.N_D', 'val': str(value)})
+            elif par == 'C_cation': # this is a special case where cations are actually free to move and anions are fixed but have the same density, since we can't fix the other ones like in the old SIMsalabim version we actually set N_A instead of N_anion 
+                if param.value_type == 'float' and not no_transform:
+                    if param.force_log:
+                        cmd_pars.append({'par': layer+'.N_cation', 'val': str(10**value)})
+                        cmd_pars.append({'par': layer+'.N_A', 'val': str(10**value)})
+                    else:
+                        cmd_pars.append({'par': layer+'.N_cation', 'val': str(value*param.fscale)})
+                        cmd_pars.append({'par': layer+'.N_A', 'val': str(value*param.fscale)})
+                else:
+                    cmd_pars.append({'par': layer+'.N_cation', 'val': str(value)})
+                    cmd_pars.append({'par': layer+'.N_A', 'val': str(value)})
             elif par == 'mu_ions':
                 if param.value_type == 'float' and not no_transform:
                     if param.force_log:
@@ -574,7 +596,7 @@ class SIMsalabimAgent(BaseAgent):
                     VarNames.append(param.name)
                     if '.' in param.name and 'offset' not in param.name and 'Egap' not in param.name:
                         layer, par = param.name.split('.')
-                        if par not in ['N_ions', 'mu_ions', 'mu_np', 'C_np_bulk', 'C_np_int']:
+                        if par not in ['N_ions', 'mu_ions', 'mu_np', 'C_np_bulk', 'C_np_int','C_anion','C_cation']:
                             if par in self.SIMsalabim_params[layer].keys():
                                 if param.value_type == 'float':
                                     if param.force_log:
@@ -633,7 +655,7 @@ class SIMsalabimAgent(BaseAgent):
                     VarNames.append(param.name)
                     if '.' in param.name and 'offset' not in param.name and 'Egap' not in param.name:
                         layer, par = param.name.split('.')
-                        if par not in ['N_ions', 'mu_ions', 'mu_np', 'C_np_bulk', 'C_np_int']:
+                        if par not in ['N_ions', 'mu_ions', 'mu_np', 'C_np_bulk', 'C_np_int','C_anion','C_cation']:
                             if par in self.SIMsalabim_params[layer].keys():
                                 clean_pars.append({'par': param.name, 'val': str(param.value)})
                             else:

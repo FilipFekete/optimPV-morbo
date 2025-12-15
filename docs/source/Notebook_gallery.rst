@@ -15,6 +15,7 @@ All notebooks
    ../examples/Approx_posterior.ipynb
    ../examples/Lazy_posterior_degradation.ipynb
    ../examples/Lazy_posterior_realOPV.ipynb
+   ../examples/QFLS_JV_perovskite_MOO_pymoo.ipynb
    ../examples/TransferMatrix.ipynb
    ../examples/TransferMatrix_EGBO.ipynb
    ../examples/TransferMatrix_pymoo.ipynb
