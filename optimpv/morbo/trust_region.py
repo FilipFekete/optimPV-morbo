@@ -29,7 +29,7 @@ from botorch.utils.multi_objective.pareto import is_non_dominated
 from botorch.utils.objective import get_objective_weights_transform
 #from botorch.utils.sampling import draw_sobol_normal_samples // not used
 from botorch.utils.transforms import normalize
-from morbo.utils import (
+from .utils import (
     get_constraint_slack_and_feasibility,
     get_fitted_model,
     get_indices_in_hypercube,

@@ -9,7 +9,7 @@ The main script for running a single replication.
 """
 import os
 import sys
-from morbo.run_one_replication import run_one_replication
+from .run_one_replication import run_one_replication
 import json
 import torch
 import errno

@@ -38,13 +38,13 @@ from botorch.utils.sampling import (
     sample_simplex,
 )
 from botorch.utils.transforms import unnormalize
-from morbo.trust_region import (
+from .trust_region import (
     HypervolumeTrustRegion,
     ScalarizedTrustRegion,
     TrustRegion,
     TurboHParams,
 )
-from morbo.utils import get_fitted_model, coalesce, decay_function
+from .utils import get_fitted_model, coalesce, decay_function
 from scipy.stats.mstats import winsorize
 from torch import Tensor
 from torch.nn import Module, ModuleList

@@ -29,15 +29,15 @@ from botorch.utils.multi_objective.box_decompositions.dominated import (
     DominatedPartitioning,
 )
 from botorch.utils.sampling import draw_sobol_samples
-from morbo.gen import (
+from .gen import (
     TS_select_batch_MORBO,
 )
-from morbo.state import TRBOState
-from morbo.trust_region import TurboHParams
+from .state import TRBOState
+from .trust_region import TurboHParams
 from torch import Tensor
 
-# from morbo.problems.rover import get_rover_fn
-from morbo.benchmark_function import (
+# from .problems.rover import get_rover_fn
+from .benchmark_function import (
     BenchmarkFunction,
 )
 

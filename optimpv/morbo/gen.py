@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import math
 import time
 from typing import Callable, NamedTuple, Tuple
 
@@ -40,8 +39,8 @@ from botorch.utils.multi_objective.box_decompositions.non_dominated import (
 )
 from botorch.utils.sampling import sample_simplex
 from botorch.utils.transforms import normalize, unnormalize
-from morbo.state import TRBOState
-from morbo.utils import (
+from .state import TRBOState
+from .utils import (
     decay_function,
     get_indices_in_hypercube,
     # sample_tr_discrete_points, // not used
