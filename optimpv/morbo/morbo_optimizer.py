@@ -144,11 +144,15 @@ class MorboOptimizer(BaseAgent):
         if len(self.opt_param_names) == 0:
             raise ValueError("No free parameters to optimize.")
 
+        # uses BaseAgent bounds_descale to match FitParam() oject descaling
         descale_bounds = self.bounds_descale(bounds_raw, self.params)
+        # converts to tensor 
         self.bounds_tensor = torch.tensor(
             descale_bounds, device=self.device, dtype=self.torch_dtype
         )
+        # set the number of dimensions to the length of the parameters
         self.dim = len(self.opt_param_names)
+        # get the number of objectives 
         self.num_objectives = len(self.all_metrics)
         self.num_outputs = self.num_objectives  # no constraints yet
 
@@ -226,15 +230,19 @@ class MorboOptimizer(BaseAgent):
             dtype=Y.dtype,
         )
         return Y * signs
+    
+    # TODO Helper method to return raw metric history as pd.DataFrame
+    # TODO Helper method to return parameter history in physical units as a DataFrame
+    # TODO Helper method Ax-style for rank-based balance across objectives
 
     # ------------------------------------------------------------- main driver
     def optimize(self) -> Dict:
         """
         Run MORBO/TRBO end-to-end and return histories plus Pareto fronts.
 
-        Mirrors other optimizers: Sobol seeding, iterative candidate generation
+        Mirrors MORBO optimizer, run_one_replication.py: Sobol seeding, iterative candidate generation
         and agent evaluation, trust-region updates/restarts, and hypervolume
-        tracking. Returned history keeps both flipped and raw metrics so
+        tracking. Returnes history, keeps both flipped and raw metrics so
         downstream plotting code can reuse it without re-running agents.
         """
         tr_kwargs = copy.deepcopy(self.tr_hparam_overrides)
@@ -414,27 +422,29 @@ class MorboOptimizer(BaseAgent):
         if self.verbose:
             print(f"Total time: {end_time - start_time:.1f} seconds")
 
-        # Persist detailed traces (with both flipped and raw metrics) so callers
+        # Detailed traces (with both flipped and raw metrics) so callers
         # can plot HV, pareto fronts, and timing without recomputing anything.
         self.history = {
-            "n_evals": n_evals,
-            "X_history": trbo_state.X_history.cpu(),
-            "metric_history": trbo_state.Y_history.cpu(),
-            "metric_history_raw": self._unflip_metrics(trbo_state.Y_history).cpu(),
-            "pareto_X": pareto_X,
-            "pareto_Y": pareto_Y,
-            "pareto_Y_raw": [
+            "n_evals": n_evals, # list of evaluation count (int)
+            "X_history": trbo_state.X_history.cpu(), # torch.Tensor (n_evals, dim) in descaled/internal space
+            "metric_history": trbo_state.Y_history.cpu(), # torch.Tensor (n_evals, num_objectives) in MORBO internal space (minimize metrics are multiplied by -1)
+            "metric_history_raw": self._unflip_metrics(trbo_state.Y_history).cpu(), # torch.Tensor, unflipped to original values (losses are poistive)
+            "pareto_X": pareto_X, # list of lists (per iteration) in internal space
+            "pareto_Y": pareto_Y, # list of lists (per iteration) sign-flipped
+            "pareto_Y_raw": [ # list of lists (per iteration), unflipped
                 self._unflip_metrics(torch.tensor(y, dtype=self.torch_dtype)).tolist()
                 if y
                 else []
                 for y in pareto_Y
             ],
-            "hv": hv_trace,
-            "tr_indices": all_tr_indices,
+            "hv": hv_trace, # list of floats (hypervolume trace)
+            "tr_indices": all_tr_indices, 
             "fit_times": fit_times,
             "gen_times": gen_times,
         }
-        return self.history
+        return self.history # returns dictionary with arrays/lists
 
+        # To see true losses, use metric_history_raw or pareto_Y_raw
+        # To see best params, use X_history + _vector_to_param_dict + params_rescale
 
 __all__ = ["MorboOptimizer"]
