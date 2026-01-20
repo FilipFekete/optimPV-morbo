@@ -3,6 +3,7 @@ This module provides functionality to visualize the posterior distributions of p
 using various plots, including 1D and 2D posteriors, devil's plots, and density plots."""
 
 ######### Package Imports #########################################################################
+
 import copy, itertools, scipy
 import numpy as np
 import pandas as pd
@@ -10,6 +11,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from optimpv.general.BaseAgent import BaseAgent
 from scipy.stats import gaussian_kde
+
 ######### Function Definitions ####################################################################
 
 class LazyPosterior(BaseAgent):

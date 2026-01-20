@@ -2,27 +2,24 @@
 
 ######### Package Imports #########################################################################
 
-import warnings, os, sys, shutil
+import copy, uuid, os, sys, shutil
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.random import default_rng
-from copy import deepcopy
-import torch, copy, uuid
-import ax, logging
 
 try:
     from optimpv import *
-
 except Exception as e:
     # Add the parent directory to the system path
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
     from optimpv import *
 
-from optimpv.BayesInfEmcee.EmceeOptimizer import EmceeOptimizer
 import pySIMsalabim as sim
 from pySIMsalabim.experiments.JV_steady_state import *
-from optimpv.DDfits.JVAgent import JVAgent
+from optimpv.models.DDfits.JVAgent import JVAgent
+from optimpv.optimizers.BayesInfEmcee.EmceeOptimizer import EmceeOptimizer
+
 ######### Test Functions #########################################################################
 
 def test_SOO_JV_fit_emcee():

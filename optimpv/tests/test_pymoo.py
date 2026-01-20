@@ -2,30 +2,26 @@
 
 ######### Package Imports #########################################################################
 
-import warnings, os, sys, shutil
+import os, sys, copy
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
-from copy import deepcopy
-import torch, copy, uuid
-import ax, logging
 
 try:
     from optimpv import *
-    from optimpv.Diodefits.DiodeAgent import DiodeAgent
-    from optimpv.Diodefits.DiodeModel import *
+    from optimpv.models.Diodefits.DiodeAgent import DiodeAgent
+    from optimpv.models.Diodefits.DiodeModel import *
 except Exception as e:
     # Add the parent directory to the system path
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
     from optimpv import *
-    from optimpv.Diodefits.DiodeAgent import DiodeAgent
-    from optimpv.Diodefits.DiodeModel import *
+    from optimpv.models.Diodefits.DiodeAgent import DiodeAgent
+    from optimpv.models.Diodefits.DiodeModel import *
 
-from optimpv.RateEqfits.RateEqAgent import RateEqAgent
-from optimpv.RateEqfits.RateEqModel import *
-from optimpv.RateEqfits.Pumps import *
-from optimpv.pymooOpti.pymooOptimizer import PymooOptimizer
-from optimpv.TransferMatrix.TransferMatrixAgent import TransferMatrixAgent
+from optimpv.models.RateEqfits.RateEqAgent import RateEqAgent
+from optimpv.models.RateEqfits.RateEqModel import *
+from optimpv.models.RateEqfits.Pumps import *
+from optimpv.optimizers.pymooOpti.pymooOptimizer import PymooOptimizer
+from optimpv.models.TransferMatrix.TransferMatrixAgent import TransferMatrixAgent
 from optimpv.general.SuggestOnlyAgent import SuggestOnlyAgent
 
 ######### Test Functions #########################################################################

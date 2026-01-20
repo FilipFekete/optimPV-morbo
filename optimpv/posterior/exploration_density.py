@@ -7,7 +7,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from itertools import combinations
 
-from optimpv.axBOtorch.axUtils import get_df_from_ax
+from optimpv.optimizers.axBOtorch.axUtils import get_df_from_ax
 
 ######### Function Definitions ####################################################################
 def plot_density_exploration(params, optimizer = None, best_parameters = None, params_orig = None, optimizer_type = 'ax', **kwargs):

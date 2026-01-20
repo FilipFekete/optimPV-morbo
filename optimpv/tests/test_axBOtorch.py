@@ -2,35 +2,34 @@
 
 ######### Package Imports #########################################################################
 
-import warnings, os, sys, shutil
+import os, sys, torch, copy
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from copy import deepcopy
-import torch, copy, uuid
-import ax, logging
 
 try:
     from optimpv import *
-    from optimpv.axBOtorch.axUtils import *
-    from optimpv.Diodefits.DiodeAgent import DiodeAgent
-    from optimpv.Diodefits.DiodeModel import *
+    from optimpv.optimizers.axBOtorch.axUtils import *
+    from optimpv.models.Diodefits.DiodeAgent import DiodeAgent
+    from optimpv.models.Diodefits.DiodeModel import *
 except Exception as e:
     # Add the parent directory to the system path
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
     from optimpv import *
-    from optimpv.axBOtorch.axUtils import *
-    from optimpv.Diodefits.DiodeAgent import DiodeAgent
-    from optimpv.Diodefits.DiodeModel import *
+    from optimpv.optimizers.axBOtorch.axUtils import *
+    from optimpv.models.Diodefits.DiodeAgent import DiodeAgent
+    from optimpv.models.Diodefits.DiodeModel import *
 
-from optimpv.RateEqfits.RateEqAgent import RateEqAgent
-from optimpv.RateEqfits.RateEqModel import *
-from optimpv.RateEqfits.Pumps import *
-from optimpv.axBOtorch.axBOtorchOptimizer import axBOtorchOptimizer
+from optimpv.models.RateEqfits.RateEqAgent import RateEqAgent
+from optimpv.models.RateEqfits.RateEqModel import *
+from optimpv.models.RateEqfits.Pumps import *
+from optimpv.optimizers.axBOtorch.axBOtorchOptimizer import axBOtorchOptimizer
 from optimpv.general.SuggestOnlyAgent import SuggestOnlyAgent
 
 from botorch.acquisition.logei import qLogNoisyExpectedImprovement 
 from botorch.acquisition.multi_objective.logei import qLogExpectedHypervolumeImprovement   
+from botorch.models import SingleTaskGP
+from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
 from ax.adapter.transforms.standardize_y import StandardizeY
 from ax.adapter.transforms.unit_x import UnitX
 from ax.adapter.transforms.remove_fixed import RemoveFixed
@@ -39,8 +38,6 @@ from ax.generators.torch.botorch_modular.utils import ModelConfig
 from ax.generators.torch.botorch_modular.surrogate import SurrogateSpec
 from gpytorch.kernels import MaternKernel
 from gpytorch.kernels import ScaleKernel
-from botorch.models import SingleTaskGP
-from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
 
 
 ######### Test Functions #########################################################################

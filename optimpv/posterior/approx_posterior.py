@@ -13,7 +13,6 @@ from sklearn.metrics import r2_score
 from scipy.special import logsumexp
 from functools import partial
 from botorch.models import SingleTaskGP
-from gpytorch.constraints import GreaterThan, Interval
 from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood

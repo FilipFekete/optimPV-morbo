@@ -2,26 +2,21 @@
 
 ######### Package Imports #########################################################################
 
-import warnings, os, sys, shutil
-import pandas as pd
-import matplotlib.pyplot as plt
+import os, sys, copy
 import numpy as np
-from copy import deepcopy
-import torch, copy, uuid
-import ax, logging
 
 try:
     from optimpv import *
-    from optimpv.axBOtorch.axUtils import *
-    from optimpv.Diodefits.DiodeAgent import DiodeAgent
-    from optimpv.Diodefits.DiodeModel import *
+    from optimpv.optimizers.scipyOpti.scipyOptimizer import ScipyOptimizer
+    from optimpv.models.Diodefits.DiodeAgent import DiodeAgent
+    from optimpv.models.Diodefits.DiodeModel import *
 except Exception as e:
     # Add the parent directory to the system path
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
     from optimpv import *
-    from optimpv.axBOtorch.axUtils import *
-    from optimpv.Diodefits.DiodeAgent import DiodeAgent
-    from optimpv.Diodefits.DiodeModel import *
+    from optimpv.optimizers.scipyOpti.scipyOptimizer import ScipyOptimizer
+    from optimpv.models.Diodefits.DiodeAgent import DiodeAgent
+    from optimpv.models.Diodefits.DiodeModel import *
 
 
 ######### Test Functions #########################################################################
@@ -58,7 +53,6 @@ def test_SOO_diode_fit():
 
         diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,transforms='log')
 
-        from optimpv.scipyOpti.scipyOptimizer import ScipyOptimizer
         optimizer = ScipyOptimizer(params=params, agents=diode, method='L-BFGS-B', options={}, name='scipy_opti', parallel_agents=True, max_parallelism=os.cpu_count()-1, verbose_logging=True)
         optimizer.optimize() # run the optimization with ax
 
@@ -99,7 +93,6 @@ def test_SOO_diode_fit():
 
         diode = DiodeAgent(params, X, y, metric = metric, loss = loss, minimize=True,exp_format=exp_format,use_pvlib=use_pvlib,transforms='log')
 
-        from optimpv.scipyOpti.scipyOptimizer import ScipyOptimizer
         optimizer = ScipyOptimizer(params=params, agents=diode, method='dogbox', options={}, name='scipy_opti', parallel_agents=True, max_parallelism=os.cpu_count()-1, verbose_logging=True)
         optimizer.optimize_least_squares() # run the optimization with ax
 

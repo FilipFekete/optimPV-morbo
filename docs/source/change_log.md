@@ -14,6 +14,7 @@ v1.05 - 2026-01-20 - VMLC-PV
 - New data and Notebooks for testing the JVAgent with QFLS vs Vext curves.
 - New and updated Notebooks for the new functionalities.
 - update requirements for ax-platform to 1.2.1
+- Rearranged the optimizers and models to have their own folders.
 
 
 v1.04 - 2025-09-25 - VMLC-PV
