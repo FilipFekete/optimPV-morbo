@@ -19,20 +19,23 @@ This repository contains the code to run **optimPV**. optimPV combines sevral op
 ## Repository Folder Structure
     .
     ├── Main                             # Main directory
-        ├── optimPV                      # Main directory for the optimPV codes
-            ├── axBOtorch                # Directory with the Bayesian optimization (BO) codes using BoTorch and Ax
-            ├── BayesInfEmcee            # Directory with the Bayesian inference codes using emcee
-            ├── DDfits                   # Directory with the different agents to run the drift-diffusion simulator  [SIMsalabim](https://github.com/kostergroup/SIMsalabim) for JV, Hysteresis, Impedance, CV and IMPS simulations and fitting
-            ├── Diodefits                # Directory with the agent to simulate and fit the non-ideal diode equation model
-            ├── general                  # Directory with general utility functions used by the different agents
-            ├── posterior                # Directory with some utility functions to plot the posterior distributions using the BO surrogate model
-            ├── RateEqfits               # Directory with the agent to simulate and fit the rate equations for different experiment types (trPL, TRMC, TAS, etc.)
-            ├── scipyOpti                # Directory with the optimization codes using scipy.optimize
-            ├── TransferMatrix           # Directory with the agent to run the transfer matrix simulations
-        ├── Notebooks                    # Contains clean versions of the Notebooks
         ├── Data                         # Contains some example data for the notebooks
+        ├── Notebooks                    # Contains clean versions of the Notebooks
         ├── docs                         # Contains the documentation
-        ├── test                         # Contains the codes for testing optimPV
+        ├── optimPV                      # Main directory for the optimPV codes
+            ├── general                  # Directory with general utility functions used by the different agents
+            ├── optimizers                # Directory with the different optimizers
+                ├── BayesInfEmcee            # Directory with the Bayesian inference codes using emcee
+                ├── axBOtorch                # Directory with the Bayesian optimization (BO) codes using BoTorch and Ax
+                ├── pymooOpti               # Directory with the optimization codes using pymoo
+                ├── scipyOpti                # Directory with the optimization codes using scipy.optimize
+            ├── models                    # Directory with the different models used by the agents
+                ├── DDfits                   # Directory with the different agents to run the drift-diffusion simulator  [SIMsalabim](https://github.com/kostergroup/SIMsalabim) for JV, Hysteresis, Impedance, CV and IMPS simulations and fitting
+                ├── Diodefits                # Directory with the agent to simulate and fit the non-ideal diode equation model
+                ├── RateEqfits               # Directory with the agent to simulate and fit the rate equations for different experiment types (trPL, TRMC, TAS, etc.)
+                ├── TransferMatrix           # Directory with the agent to run the transfer matrix simulations
+            ├── posterior                # Directory with some utility functions to plot the posterior distributions using the BO surrogate model
+            ├── tests                         # Contains the codes for testing optimPV
     └── README.md
 
 ## Installation

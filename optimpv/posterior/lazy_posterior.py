@@ -19,6 +19,7 @@ class LazyPosterior(BaseAgent):
 
 
     def __init__(self, params, df, outcome_name, best_params = None, is_nat_scale = False, maximize=True, **kwargs):
+        
         """ LazyPosterior class object to visualize the approximate posterior.
 
         Parameters
@@ -87,16 +88,16 @@ class LazyPosterior(BaseAgent):
             Matplotlib Axes object to plot on. If None, a new figure and axes are created.
         **kwargs : dict
             Additional keyword arguments passed to seaborn.kdeplot:
-            - levels: int, optional, default=10
-                Number of contour levels to draw.
-            - cmap: str or Colormap, optional, default='viridis'
-                Colormap to use for the plot.
-            - alpha: float, optional, default=0.7
-                Transparency level for the filled contours.
-            - title: str, optional
-                Title of the plot.
-            - xlabel: str, optional
-                Label for the x-axis.
+                - levels: int, optional, default=10
+                    Number of contour levels to draw.
+                - cmap: str or Colormap, optional, default='viridis'
+                    Colormap to use for the plot.
+                - alpha: float, optional, default=0.7
+                    Transparency level for the filled contours.
+                - title: str, optional
+                    Title of the plot.
+                - xlabel: str, optional
+                    Label for the x-axis.
 
         """          
         
@@ -154,16 +155,16 @@ class LazyPosterior(BaseAgent):
             Matplotlib Axes object to plot on. If None, a new figure and axes are created.
         **kwargs : dict
             Additional keyword arguments passed to seaborn.kdeplot:
-            - color: str, optional, default='blue'
-                Color of the KDE line.
-            - fill: bool, optional, default=True
-                Whether to fill the area under the KDE curve.
-            - alpha: float, optional, default=0.5
-                Transparency level for the filled area.
-            - title: str, optional
-                Title of the plot.
-            - xlabel: str, optional
-                Label for the x-axis.
+                - color: str, optional, default='blue'
+                    Color of the KDE line.
+                - fill: bool, optional, default=True
+                    Whether to fill the area under the KDE curve.
+                - alpha: float, optional, default=0.5
+                    Transparency level for the filled area.
+                - title: str, optional
+                    Title of the plot.
+                - xlabel: str, optional
+                    Label for the x-axis.
 
         """          
   

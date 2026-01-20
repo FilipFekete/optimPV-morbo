@@ -4,10 +4,26 @@ optimpv.posterior package
 Submodules
 ----------
 
-optimpv.posterior.posterior module
-----------------------------------
+optimpv.posterior.approx\_posterior module
+------------------------------------------
 
-.. automodule:: optimpv.posterior.posterior
+.. automodule:: optimpv.posterior.approx_posterior
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+optimpv.posterior.exploration\_density module
+---------------------------------------------
+
+.. automodule:: optimpv.posterior.exploration_density
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+optimpv.posterior.lazy\_posterior module
+----------------------------------------
+
+.. automodule:: optimpv.posterior.lazy_posterior
    :members:
    :undoc-members:
    :show-inheritance:

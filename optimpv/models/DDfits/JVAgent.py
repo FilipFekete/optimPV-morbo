@@ -455,6 +455,7 @@ class JVAgent(SIMsalabimAgent):
         # check if X is 1D or 2D
         if len(self.X[0].shape) == 1:
             Gfracs = None
+            Gfracs_eff = None
         else:
             Gfracs, Gfracs_eff = [], [] # list of Gfracs (real values) and the effective Gfracs (where Gfrac values are corrected by a factor G_eff)
             got_gfrac_none = False
