@@ -456,7 +456,7 @@ class JVAgent(SIMsalabimAgent):
         if len(self.X[0].shape) == 1:
             Gfracs = None
         else:
-            Gfracs = []
+            Gfracs, Gfracs_eff = [], [] # list of Gfracs (real values) and the effective Gfracs (where Gfrac values are corrected by a factor G_eff)
             got_gfrac_none = False
             for xx in self.X:
                 if len(xx.shape) == 1:
@@ -471,22 +471,27 @@ class JVAgent(SIMsalabimAgent):
                         if g not in Gfracs:
                             Gfracs.append(g)
 
-            Gfracs = np.asarray(Gfracs)                
-
+            Gfracs = np.asarray(Gfracs)
+            if parameters.get('G_eff', None) is not None:
+                G_eff = parameters['G_eff']
+                Gfracs_eff = Gfracs * G_eff  
+            else:
+                G_eff = 1.0
+                Gfracs_eff = Gfracs              
+        
         # prepare the cmd_pars for the simulation
         clean_pars = self.get_SIMsalabim_clean_cmd_pars(parameters)
 
         # Run the JV simulation
         UUID = self.kwargs.get('UUID',str(uuid.uuid4()))
-
-        ret, mess = run_SS_JV(self.simulation_setup, self.session_path, JV_file_name = 'JV.dat', G_fracs = Gfracs, UUID=UUID, cmd_pars=clean_pars, parallel = parallel, max_jobs = max_jobs)
-
+        
+        ret, mess = run_SS_JV(self.simulation_setup, self.session_path, JV_file_name = 'JV.dat', G_fracs = Gfracs_eff, UUID=UUID, cmd_pars=clean_pars, parallel = parallel, max_jobs = max_jobs)
+        
         if type(ret) == int:
             if not (ret == 0  or ret == 95) :
                 print('Error in running SIMsalabim: '+mess)
                 return np.nan
         elif isinstance(ret, subprocess.CompletedProcess):
-            
             if not(ret.returncode == 0 or ret.returncode == 95):
                 print('Error in running SIMsalabim: '+mess)
                 return np.nan
@@ -512,15 +517,15 @@ class JVAgent(SIMsalabimAgent):
 
                 return df
             except:
-                print('No JV data found for UUID '+UUID + ' and cmd_pars '+str(cmd_pars))
+                print('No JV data found for UUID '+UUID + ' and cmd_pars '+str(clean_pars))
                 return np.nan
         else:
             # make a dummy dataframe and append the dataframes for each Gfrac with a new column for Gfrac
-            for Gfrac in Gfracs:
+            for _, Gfrac in enumerate(Gfracs_eff):
                 try:
                     df = pd.read_csv(os.path.join(self.session_path, 'JV_Gfrac_'+str(Gfrac)+'_'+UUID+'.dat'), sep=r'\s+')
-                    df['Gfrac'] = Gfrac * np.ones_like(df['Vext'].values)
-                    if Gfrac == Gfracs[0]:
+                    df['Gfrac'] = Gfracs[_]  * np.ones_like(df['Vext'].values)
+                    if _ == 0:
                         df_all = df
                     else:
                         # concatenate the dataframes
@@ -536,7 +541,7 @@ class JVAgent(SIMsalabimAgent):
                         os.remove(os.path.join(self.session_path, 'scPars_Gfrac_'+str(Gfrac)+'_'+UUID+'.txt'))
 
                 except Exception as e:
-                    print('No JV data found for UUID '+UUID + ' and cmd_pars '+str(cmd_pars))
+                    print('No JV data found for UUID '+UUID + ' and cmd_pars '+str(clean_pars)+ ' and Gfrac '+str(Gfrac))
                     # print(e)
                     return np.nan
 

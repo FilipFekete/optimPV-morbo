@@ -77,7 +77,9 @@ class SIMsalabimAgent(BaseAgent):
         
         clean_pars = self.energy_level_offsets(custom_pars, clean_pars)
         
-        clean_pars = self.Gamma_pre_reset(clean_pars,custom_pars)
+        # removing reset of Gamma_pre parameters and converting them to k_direct because SIMsalabim now does the right thing.
+        # clean_pars = self.Gamma_pre_reset(clean_pars,custom_pars)
+        clean_pars = self.trap_depth_2_energy_level(custom_pars, clean_pars)
 
         return clean_pars
     
@@ -346,6 +348,15 @@ class SIMsalabimAgent(BaseAgent):
 
     def energy_level_offsets(self, custom_pars, clean_pars):
         """Convert the energy level offsets to the SIMsalabim format energy levels
+        The formats are:
+        offset_lX_lY.E_c is the offset from layer X to layer Y conduction band => E_c_layerY = E_c_layerX - offset
+        offset_lX_lY.E_v is the offset from layer X to layer Y valence band => E_v_layerY = E_v_layerX - offset
+        Egap_lX.E_c is the bandgap energy of layer X => E_c_layerX = E_v_layerX - Egap
+        Egap_lX.E_v is the bandgap energy of layer X => E_v_layerX = E_c_layerX + Egap
+        offset_W_L.E_c is the offset from the left electrode work function to the conduction band of layer 1 => W_L = E_c_layer1 - offset
+        offset_W_L.E_v is the offset from the left electrode work function to the valence band of layer 1 => W_L = E_v_layer1 - offset
+        offset_W_R.E_c is the offset from the right electrode work function to the conduction band of the last layer => W_R = E_c_layerN - offset
+        offset_W_R.E_v is the offset from the right electrode work function to the valence band of the last layer => W_R = E_v_layerN - offset
 
         Parameters
         ----------
@@ -491,53 +502,118 @@ class SIMsalabimAgent(BaseAgent):
 
         return clean_pars
 
-    def Gamma_pre_reset(self, cmd_pars, custom_pars):
-        """Prepare the Langevin pre-factor parameters for the SIMsalabim simulation but use it to calculate k_direct instead of passing preLangevin to SIMsalabim.
+    # def Gamma_pre_reset(self, cmd_pars, custom_pars):
+    #     """Prepare the Langevin pre-factor parameters for the SIMsalabim simulation but use it to calculate k_direct instead of passing preLangevin to SIMsalabim.
+
+    #     Parameters
+    #     ----------
+    #     cmd_pars : list of dict
+    #         list of dictionaries with the following form {'par': string, 'val': string}
+    #     custom_pars : list of dict
+    #         list of dictionaries with the following form {'par': string, 'val': string}
+
+    #     Returns
+    #     -------
+    #     list of dict
+    #         list of dictionaries with the following form {'par': string, 'val': string}
+    #     """ 
+    #     tmp_SIMsalabim_params = copy.deepcopy(self.SIMsalabim_params)
+    #     clean_pars, Gammas = [], []
+    #     for cmd in cmd_pars:
+    #         if '.' not in cmd['par'] :
+    #             clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
+    #             continue
+    #         else:
+    #             if 'mu_n' in cmd['par'] or 'mu_p' in cmd['par']: # make sure we update the mobilities in the tmp_SIMsalabim_params
+    #                 if '.' not in cmd['par']:
+    #                     continue
+    #                 layer, par = cmd['par'].split('.')
+    #                 if par == 'mu_n':
+    #                     tmp_SIMsalabim_params[layer]['mu_n'] = cmd['val']
+    #                 elif par == 'mu_p':
+    #                     tmp_SIMsalabim_params[layer]['mu_p'] = cmd['val']
+    #                 clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
+    #             else:
+    #                 clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
+    #     for cmd in custom_pars:
+    #         if 'Gamma_pre' in cmd['par']:
+    #             Gammas.append({'par': cmd['par'], 'val': cmd['val']})
+    #     # now we need to add the Gamma_pre parameters to the clean_pars
+    #     for gamma in Gammas:
+    #         layer, par = gamma['par'].split('.')
+    #         mob_n = tmp_SIMsalabim_params[layer]['mu_n']
+    #         mob_p = tmp_SIMsalabim_params[layer]['mu_p']
+    #         eps_r = tmp_SIMsalabim_params[layer]['eps_r']
+    #         eps_0 = 8.8542e-12  # same as in SIMsalabim
+    #         q = 1.6022e-19 # same as in SIMsalabim
+    #         k_direct = float(gamma['val']) * q * (float(mob_n) + float(mob_p)) / (float(eps_r) * eps_0)
+    #         clean_pars.append({'par': layer+'.k_direct', 'val': str(k_direct)})
+
+    #     return clean_pars
+    
+    def trap_depth_2_energy_level(self, custom_pars, clean_pars):
+        """Convert the trap depth parameters to the SIMsalabim format energy levels
+        This need to be done after the energy level offsets have been set
+        The formats are:
+        lX.E_t_bulk_depth.E_c = depth from conduction band => E_t_bulk = E_c + depth
+        lX.E_t_bulk_depth.E_v = depth from valence band => E_t_bulk = E_v - depth
+        lX.E_t_int_depth.E_c = depth from conduction band => E_t_int = E_c + depth
+        lX.E_t_int_depth.E_v = depth from valence band => E_t_int = E_v - depth
 
         Parameters
         ----------
-        cmd_pars : list of dict
-            list of dictionaries with the following form {'par': string, 'val': string}
         custom_pars : list of dict
-            list of dictionaries with the following form {'par': string, 'val': string}
+            list of dictionaries these contain all the parameters that are not explicitely in the SIMsalabim format. The dictionaries are of the form {'par': string, 'val': string}  
+        clean_pars : list of dict
+            list of dictionaries these contain all the parameters that are explicitely in the SIMsalabim format. The dictionaries are of the form {'par': string, 'val': string}
 
         Returns
         -------
         list of dict
-            list of dictionaries with the following form {'par': string, 'val': string}
-        """ 
-        tmp_SIMsalabim_params = copy.deepcopy(self.SIMsalabim_params)
-        clean_pars, Gammas = [], []
-        for cmd in cmd_pars:
-            if '.' not in cmd['par'] :
-                clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
-                continue
-            else:
-                if 'mu_n' in cmd['par'] or 'mu_p' in cmd['par']: # make sure we update the mobilities in the tmp_SIMsalabim_params
-                    if '.' not in cmd['par']:
-                        continue
-                    layer, par = cmd['par'].split('.')
-                    if par == 'mu_n':
-                        tmp_SIMsalabim_params[layer]['mu_n'] = cmd['val']
-                    elif par == 'mu_p':
-                        tmp_SIMsalabim_params[layer]['mu_p'] = cmd['val']
-                    clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
-                else:
-                    clean_pars.append({'par': cmd['par'], 'val': cmd['val']})
-        for cmd in custom_pars:
-                if 'Gamma_pre' in cmd['par']:
-                    Gammas.append({'par': cmd['par'], 'val': cmd['val']})
-        # now we need to add the Gamma_pre parameters to the clean_pars
-        for gamma in Gammas:
-            layer, par = gamma['par'].split('.')
-            mob_n = tmp_SIMsalabim_params[layer]['mu_n']
-            mob_p = tmp_SIMsalabim_params[layer]['mu_p']
-            eps_r = tmp_SIMsalabim_params[layer]['eps_r']
-            eps_0 = 8.8542e-12  # same as in SIMsalabim
-            q = 1.6022e-19 # same as in SIMsalabim
-            k_direct = float(gamma['val']) * q * (float(mob_n) + float(mob_p)) / (float(eps_r) * eps_0)
-            clean_pars.append({'par': layer+'.k_direct', 'val': str(k_direct)})
+            list of dictionaries these contain all the parameters converted to the SIMsalabim format. The dictionaries are of the form {'par': string, 'val': string}
 
+        Raises
+        ------
+        
+        """        
+        
+        # make a deepcopy of self.SIMsalabim_params to avoid mixing the values of the energy levels when running in parallel
+        tmp_SIMsalabim_params = copy.deepcopy(self.SIMsalabim_params)
+
+        # search for energy level values defined in clean_pars and add them to the SIMsalabim_params
+        for cmd in clean_pars:
+            if ('E_c' in cmd['par']) and (not 'offset' in cmd['par']) and (not 'Egap' in cmd['par'])and (not 'depth' in cmd['par']):
+                layer, par = cmd['par'].split('.')
+                tmp_SIMsalabim_params[layer][par] = cmd['val']
+            if ('E_v' in cmd['par']) and (not 'offset' in cmd['par']) and (not 'Egap' in cmd['par'])and (not 'depth' in cmd['par']):
+                layer, par = cmd['par'].split('.')
+                tmp_SIMsalabim_params[layer][par] = cmd['val']
+        
+        for idx, cmd in enumerate(custom_pars):
+            if 'E_t_bulk_depth' in cmd['par']:
+                layer, par, ref = cmd['par'].split('.')
+                if ref == 'E_c':
+                    E_c = float(tmp_SIMsalabim_params[layer]['E_c'])
+                    E_trap = E_c + float(cmd['val'])
+                    clean_pars.append({'par': layer+'.E_t_bulk', 'val': str(E_trap)})
+                    tmp_SIMsalabim_params[layer]['E_t_bulk'] = str(E_trap)
+                if ref == 'E_v':
+                    E_v = float(tmp_SIMsalabim_params[layer]['E_v'])
+                    E_trap = E_v - float(cmd['val'])
+                    clean_pars.append({'par': layer+'.E_t_bulk', 'val': str(E_trap)})
+                    tmp_SIMsalabim_params[layer]['E_t_bulk'] = str(E_trap)
+            if 'E_t_int_depth' in cmd['par']:
+                layer, par, ref = cmd['par'].split('.')
+                if ref == 'E_c':
+                    E_c = float(tmp_SIMsalabim_params[layer]['E_c'])
+                    E_trap = E_c + float(cmd['val'])
+                    clean_pars.append({'par': layer+'.E_t_int', 'val': str(E_trap)})
+                    tmp_SIMsalabim_params[layer]['E_t_int'] = str(E_trap)
+                if ref == 'E_v':
+                    E_v = float(tmp_SIMsalabim_params[layer]['E_v'])
+                    E_trap = E_v - float(cmd['val'])
+                    clean_pars.append({'par': layer+'.E_t_int', 'val': str(E_trap)})
+                    tmp_SIMsalabim_params[layer]['E_t_int'] = str(E_trap)
         return clean_pars
     
     def check_duplicated_parameters(self, cmd_pars):
@@ -594,7 +670,7 @@ class SIMsalabimAgent(BaseAgent):
             if param.name in parameters.keys():
                 if param.name not in VarNames:
                     VarNames.append(param.name)
-                    if '.' in param.name and 'offset' not in param.name and 'Egap' not in param.name:
+                    if '.' in param.name and 'offset' not in param.name and 'Egap' not in param.name and not 'depth' in param.name:
                         layer, par = param.name.split('.')
                         if par not in ['N_ions', 'mu_ions', 'mu_np', 'C_np_bulk', 'C_np_int','C_anion','C_cation']:
                             if par in self.SIMsalabim_params[layer].keys():
@@ -633,7 +709,7 @@ class SIMsalabimAgent(BaseAgent):
                                 clean_pars.append({'par': param.name, 'val': str(parameters[param.name])})
                         else:
                             # put in custom_pars
-                            if 'offset' in param.name or 'Egap' in param.name:
+                            if 'offset' in param.name or 'Egap' in param.name or 'depth' in param.name:
                                 if param.value_type == 'float':
                                     if param.force_log:
                                         custom_pars.append({'par': param.name, 'val': str(10**parameters[param.name])})
@@ -653,7 +729,7 @@ class SIMsalabimAgent(BaseAgent):
                 # if param is not in parameters we use the param.value
                 if param.name not in VarNames:
                     VarNames.append(param.name)
-                    if '.' in param.name and 'offset' not in param.name and 'Egap' not in param.name:
+                    if '.' in param.name and 'offset' not in param.name and 'Egap' not in param.name and not 'depth' in param.name:
                         layer, par = param.name.split('.')
                         if par not in ['N_ions', 'mu_ions', 'mu_np', 'C_np_bulk', 'C_np_int','C_anion','C_cation']:
                             if par in self.SIMsalabim_params[layer].keys():
@@ -666,7 +742,7 @@ class SIMsalabimAgent(BaseAgent):
                         if param.name in self.SIMsalabim_params['setup'].keys():
                             clean_pars.append({'par': param.name, 'val': str(param.value)})
                         else:
-                            if 'offset' in param.name or 'Egap' in param.name:
+                            if 'offset' in param.name or 'Egap' in param.name or 'depth' in param.name:
                                 custom_pars.append({'par': param.name, 'val': str(param.value)})
                             else:
                                 warnings.warn('Parameter '+param.name+' is not defined in the SIMsalabim parameter files. Please check the parameter names. The optimization will proceed but '+param.name+' will not be used by SIMsalabim.', UserWarning)

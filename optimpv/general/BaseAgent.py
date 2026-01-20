@@ -192,6 +192,7 @@ class BaseAgent():
         """    
         for param in params:
             if param.type == 'fixed':
+                df[param.name] = param.value
                 continue
             if param.value_type == 'float':
                 if param.force_log:

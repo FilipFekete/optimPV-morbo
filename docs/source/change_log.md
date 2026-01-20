@@ -2,11 +2,11 @@ Change Log
 ==========
 All notable changes to this project will be documented in this file.
 
-v1.05 - 2025-10-28 - VMLC-PV
+v1.05 - 2026-01-20 - VMLC-PV
 -----------------------------
-- axBOtorchOptimizer: skipping center and sobol as "models" when creating the ax client instance, this is to make sure that the client has a trainable model. Fixed small error in best Sobol value print.  
+- axBOtorchOptimizer: skipping center and sobol as "models" when creating the ax client instance, this is to make sure that the client has a trainable model. Fixed small error in best Sobol value print. Also made sure that the suggest only agent can work with SOBOL.
 - SIMsalabimAgent: Remove the check that enforces left-to-right or right-to-left arrangement of the energy level offsets (differences in designated energy levels). This is not necessary, as a later check ensures that each parameter is specified only once.   
-- JVAgent: Added new exp_format ‘^QFLSL-?\d+$’ i.e. QFLSL plus an integer. This is to simulate QFLS vs Vext curves.  
+- JVAgent: Added new exp_format ‘^QFLSL-?\d+$’ i.e. QFLSL plus an integer. This is to simulate QFLS vs Vext curves. Added a G_eff parameter that get multiplied to the G_frac this helps when using the transfer matrix model ('calc' option in SIMsalabim) and the n,k data are not perfect.
 - RateEqModel: Removed a factor 2 in the p1s expression. Added N0 as a potential fit parameters.  
 - scipyOptimizer: Added optimize_least_squares method to perform optimization using the least squares method from scipy. This is useful for fitting problems and can provide better results than the standard scipy.optimize.minimize method for certain problems.
 - posterior: Added new posibility to calculate the approximate posterior distributions with approx_posteriot.py and lazy_posterior.py. posterior.py will be retired soon. exploration_density.py was created to keep the density exploration plotting functions.
@@ -14,6 +14,7 @@ v1.05 - 2025-10-28 - VMLC-PV
 - New data and Notebooks for testing the JVAgent with QFLS vs Vext curves.
 - New and updated Notebooks for the new functionalities.
 - update requirements for ax-platform to 1.2.1
+
 
 v1.04 - 2025-09-25 - VMLC-PV
 -----------------------------

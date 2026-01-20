@@ -485,8 +485,7 @@ class axBOtorchOptimizer(BaseAgent):
         total_trials = sum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         n_step_points = np.cumsum(np.asarray(self.n_batches)*np.asarray(self.batch_size))
         size_pool = None
-        
-        if self.suggest_only and self.existing_data is not None:
+        if self.suggest_only and not(self.models[0] != 'SOBOL' and self.existing_data is None):
             # If suggest_only is True, we only suggest the trials without running the agents
             trials = self.ax_client.get_next_trials(total_trials)
             
