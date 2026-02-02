@@ -52,6 +52,7 @@ setuptools.setup(
         "arviz>=0.15.1",
         "botorch>=0.6",
         "gpytorch",
+        "pydantic>=1.10",
 
         # ML
         "torch>=2.0",

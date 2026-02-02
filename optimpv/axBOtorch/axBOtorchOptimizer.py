@@ -412,7 +412,7 @@ class axBOtorchOptimizer(BaseAgent):
         res = agent.run_Ax(p)
         return p_idx, res
     
-    def optimize(self):
+    def optimize(self, generation_strategy = None):
         """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class.
 
         Raises
@@ -422,10 +422,10 @@ class axBOtorchOptimizer(BaseAgent):
 
         """  
 
-        self.optimize_sequential()
+        self.optimize_sequential(generation_strategy=generation_strategy)
         #Note: I might reimplement the runner option in a future version, but for now it is not used.
 
-    def optimize_sequential(self):
+    def optimize_sequential(self, generation_strategy=None):
         """ Run the optimization process using the agents and the parameters. The optimization process uses the Ax library. The optimization process runs the agents in parallel if the parallel attribute is True. The optimization process runs using the parameters, agents, models, n_batches, batch_size, max_parallelism, model_kwargs_list, model_gen_kwargs_list, name and kwargs attributes of the class.
 
         Raises
@@ -455,7 +455,7 @@ class axBOtorchOptimizer(BaseAgent):
         self.all_tracking_metrics = self.get_tracking_metrics(self.agents)
 
         # # create generation strategy
-        gs = self.create_generation_strategy()
+        gs = generation_strategy if generation_strategy is not None else self.create_generation_strategy()
 
         # create ax client
         if self.ax_client is None:
