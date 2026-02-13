@@ -6,7 +6,6 @@ import math
 from typing import Any, Literal, Self, override
 
 import torch
-
 from ax.core.data import Data
 from ax.core.experiment import Experiment
 from ax.core.parameter import RangeParameter
@@ -14,13 +13,14 @@ from ax.core.trial_status import TrialStatus
 from ax.core.types import TParameterization
 from ax.exceptions.core import OptimizationShouldStop
 from ax.generation_strategy.external_generation_node import ExternalGenerationNode
-from botorch.acquisition import qExpectedImprovement
+from botorch.acquisition import qLogExpectedImprovement
 from botorch.fit import fit_gpytorch_mll  # pyright: ignore[reportUnknownVariableType]
 from botorch.generation import MaxPosteriorSampling
 from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.optim import optimize_acqf  # pyright: ignore[reportUnknownVariableType]
+from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from pydantic import BaseModel
 from torch.quasirandom import SobolEngine
@@ -53,9 +53,12 @@ def fit_gp(
     input_transform = Normalize(d=d) if normalize_inputs else None
     outcome_transform = Standardize(m=1) if standardize_outputs else None
 
+    covar_module = ScaleKernel(MaternKernel(nu=2.5, ard_num_dims=d))
+
     model = SingleTaskGP(
         X,
         Y,
+        covar_module=covar_module,
         input_transform=input_transform,
         outcome_transform=outcome_transform,
     )
@@ -144,9 +147,11 @@ class TurboState(BaseModel):
         *,
         buffer: float = 0.0,
         weights: torch.Tensor | None = None,
+        maximize: bool | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Get the trust region bounds for the TuRBO algorithm."""
-        x_center = X[Y.argmax() if self.maximize else Y.argmin(), :].clone()
+        maximize_mode = self.maximize if maximize is None else maximize
+        x_center = X[Y.argmax() if maximize_mode else Y.argmin(), :].clone()
         if weights is None:
             weights = torch.ones_like(x_center)  # Initial weights before model fitting
         else:
@@ -192,6 +197,7 @@ class TurboState(BaseModel):
         X_pending: torch.Tensor | None = None,
         acqf: Literal["ei", "ts"] = "ts",
         acqf_kwargs: dict[str, Any] | None = None,
+        y_is_oriented: bool = False, # flag to explicitly mark if incoming Y is already transformed for “maximization”
     ) -> torch.Tensor:
         """Generate a batch of candidates within the current trust region."""
         if acqf_kwargs is None:
@@ -212,10 +218,13 @@ class TurboState(BaseModel):
             acqf_kwargs["n_candidates"] = min(5000, max(2000, 200 * X.shape[-1]))
 
         # Scale the TR to be proportional to the lengthscales
-        covar_module = model.covar_module
-        kernel = covar_module.base_kernel if hasattr(covar_module, "base_kernel") else covar_module
-        weights = kernel.lengthscale.squeeze().detach()  # pyright: ignore[reportCallIssue, reportAttributeAccessIssue]
-        tr_lb, tr_ub, x_center = self.get_trust_region_bounds(X, Y, weights=weights)
+        weights = model.covar_module.base_kernel.lengthscale.squeeze().detach()  # pyright: ignore[reportCallIssue, reportAttributeAccessIssue]
+        tr_lb, tr_ub, x_center = self.get_trust_region_bounds(
+            X,
+            Y,
+            weights=weights,
+            maximize=True if y_is_oriented else None, # if y_is_oriented is True, then we are maximizing as Y is already oriented for maximization
+        )
 
         if acqf == "ts":
             n_candidates = acqf_kwargs.get("n_candidates", min(5000, max(2000, 200 * X.shape[-1])))
@@ -240,7 +249,8 @@ class TurboState(BaseModel):
                 X_next = thompson_sampling(X_cand, num_samples=batch_size)
 
         elif acqf == "ei":
-            ei = qExpectedImprovement(model, Y.max() if self.maximize else -Y.min(), X_pending=X_pending)
+            best_f = Y.max() if y_is_oriented else (Y.max() if self.maximize else -Y.min()) # else is just fallback, should not be needed as the Y passed in will have the correct orientation
+            ei = qLogExpectedImprovement(model, best_f, X_pending=X_pending)
             X_next, _ = optimize_acqf(
                 ei,
                 bounds=torch.stack([tr_lb, tr_ub]),
@@ -412,9 +422,10 @@ class TurboGenerationNode(ExternalGenerationNode):
 
         if len(pending_parameters) > 0:
             X_pending = torch.zeros(len(pending_parameters), len(self.parameters), dtype=self.dtype, device=self.device)
-            for i, p in enumerate(pending_parameters):
+            parameter_names = [p.name for p in self.parameters]
+            for i, pending in enumerate(pending_parameters):
                 X_pending[i, :] = torch.tensor(
-                    [p[param.name] for param in self.parameters],
+                    [pending.get(name, 0.0) for name in parameter_names],
                     dtype=self.dtype,
                     device=self.device,
                 )
@@ -424,26 +435,31 @@ class TurboGenerationNode(ExternalGenerationNode):
             X_pending = None
 
         X_train, Y_train = self.X_turbo, self.Y_turbo
+        # Orient objective once so acquisition always solves a maximization problem.
+        # flips the signs for minimization problems, and sets y_is_oriented=True to indicate that Y passed to generate_batch is already oriented for maximization
+        Y_for_model = Y_train if self.maximize else -Y_train # Acqf samples from a model aligned with objective direction
+
 
         # Fit a GP model with Standardize transform (handles standardization automatically)
         # The posterior is in original scale, so we pass original Y to generate_batch
         model = fit_gp(
             X_train,
-            Y_train,
+            Y_for_model,
             normalize_inputs=False,  # Already normalized to [0,1]
             standardize_outputs=True,
             max_cholesky_size=self.model_options.get("max_cholesky_size", float("inf")),
         )
 
-        # Create a batch (Y_train is in original scale, matching the model's posterior)
+        # Create a batch using the same oriented target used for GP fitting.
         X_next = self.state.generate_batch(
             model=model,
             X=X_train,
             X_pending=X_pending,
-            Y=Y_train,
+            Y=Y_for_model,
             batch_size=self.batch_size,
             acqf=self.acqf,  # pyright: ignore[reportArgumentType]
             acqf_kwargs=self.acqf_kwargs,
+            y_is_oriented=True, # flag to indicate that Y passed to generate_batch is already oriented(flipped if minimize) for maximization from the Y_for_model variable
         )
 
         X_next_unnormalized = self.from_unit_cube(X_next)
