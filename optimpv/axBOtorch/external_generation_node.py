@@ -2,6 +2,7 @@
 
 # pyright: basic
 
+import logging
 import math
 from typing import Any, Literal, Self, override
 
@@ -14,6 +15,7 @@ from ax.core.types import TParameterization
 from ax.exceptions.core import OptimizationShouldStop
 from ax.generation_strategy.external_generation_node import ExternalGenerationNode
 from botorch.acquisition import qLogExpectedImprovement
+from botorch.acquisition.objective import GenericMCObjective, ScalarizedPosteriorTransform
 from botorch.fit import fit_gpytorch_mll  # pyright: ignore[reportUnknownVariableType]
 from botorch.generation import MaxPosteriorSampling
 from botorch.models import SingleTaskGP
@@ -24,6 +26,8 @@ from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from pydantic import BaseModel
 from torch.quasirandom import SobolEngine
+
+logger = logging.getLogger(__name__) # for warnings about reduced candidate sets due to constraints
 
 
 def fit_gp(
@@ -150,8 +154,7 @@ class TurboState(BaseModel):
         maximize: bool | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Get the trust region bounds for the TuRBO algorithm."""
-        maximize_mode = self.maximize if maximize is None else maximize
-        x_center = X[Y.argmax() if maximize_mode else Y.argmin(), :].clone()
+        x_center = X[Y.argmax() if self.maximize else Y.argmin(), :].clone()
         if weights is None:
             weights = torch.ones_like(x_center)  # Initial weights before model fitting
         else:
@@ -197,7 +200,9 @@ class TurboState(BaseModel):
         X_pending: torch.Tensor | None = None,
         acqf: Literal["ei", "ts"] = "ts",
         acqf_kwargs: dict[str, Any] | None = None,
-        y_is_oriented: bool = False, # flag to explicitly mark if incoming Y is already transformed for “maximization”
+        # BoTorch inequality format: (indices, coeffs, rhs) for X[:, indices] @ coeffs <= rhs
+        inequality_constraints: list[tuple[torch.Tensor, torch.Tensor, float]] | None = None,
+        bounds: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Generate a batch of candidates within the current trust region."""
         if acqf_kwargs is None:
@@ -223,7 +228,6 @@ class TurboState(BaseModel):
             X,
             Y,
             weights=weights,
-            maximize=True if y_is_oriented else None, # if y_is_oriented is True, then we are maximizing as Y is already oriented for maximization
         )
 
         if acqf == "ts":
@@ -243,18 +247,62 @@ class TurboState(BaseModel):
             X_cand = x_center.expand(n_candidates, dim).clone()
             X_cand[mask] = pert[mask]
 
+            if inequality_constraints is not None:
+                if bounds is None:
+                    raise ValueError("`bounds` must be provided when using `inequality_constraints`.")
+                constraint_mask = torch.ones(n_candidates, dtype=torch.bool, device=device)
+                lower = bounds[0]
+                upper = bounds[1]
+                # constraints are defined in physical parameter space, so filter there before scaling back
+                X_cand_un = X_cand * (upper - lower) + lower
+                for indices, coeffs, rhs in inequality_constraints:
+                    constraint_mask &= (X_cand_un[:, indices] @ coeffs <= rhs)
+                X_cand_un = X_cand_un[constraint_mask]
+                if X_cand_un.shape[0] < batch_size:
+                    logger.warning(
+                        "Reduced candidate size from %s to %s due to constraints. "
+                        "This may lead to suboptimal results. Consider increasing n_candidates.",
+                        constraint_mask.shape[0],
+                        X_cand_un.shape[0],
+                    )
+                    if X_cand_un.shape[0] == 0:
+                        raise RuntimeError(
+                            "No candidates left after applying constraints. "
+                            "Your trust region might be too small or your constraints too strict."
+                        )
+                X_cand = (X_cand_un - lower) / (upper - lower)
+
+            # Keep GP in raw target space and apply minimization only at acquisition time.
+            posterior_transform = None
+            if not self.maximize:
+                posterior_transform = ScalarizedPosteriorTransform(
+                    weights=torch.tensor([-1.0], dtype=dtype, device=device) # flip sign for minimization
+                )
+
             # Sample on the candidate points
-            thompson_sampling = MaxPosteriorSampling(model=model, replacement=False)
-            with torch.no_grad():  # We don't need gradients when using TS
+            thompson_sampling = MaxPosteriorSampling(
+                model=model,
+                posterior_transform=posterior_transform,
+                replacement=False,
+            )
+            with torch.no_grad():  
                 X_next = thompson_sampling(X_cand, num_samples=batch_size)
 
         elif acqf == "ei":
-            best_f = Y.max() if y_is_oriented else (Y.max() if self.maximize else -Y.min()) # else is just fallback, should not be needed as the Y passed in will have the correct orientation
-            ei = qLogExpectedImprovement(model, best_f, X_pending=X_pending)
+            if self.maximize:
+                best_f = Y.max()
+                ei = qLogExpectedImprovement(model, best_f, X_pending=X_pending)
+            else:
+                # EI is a maximization acquisition, so minimize by maximizing -f(x).
+                best_f = -Y.min()
+                objective = GenericMCObjective(lambda samples, X=None: -samples.squeeze(-1))
+                ei = qLogExpectedImprovement(model, best_f, X_pending=X_pending, objective=objective)
             X_next, _ = optimize_acqf(
                 ei,
                 bounds=torch.stack([tr_lb, tr_ub]),
                 q=batch_size,
+                # same BoTorch inequality tuples used in TS filtering
+                inequality_constraints=inequality_constraints,
                 **acqf_kwargs,
             )
 
@@ -307,9 +355,50 @@ class TurboGenerationNode(ExternalGenerationNode):
         self.X_turbo: torch.Tensor | None = None
         self.Y_turbo: torch.Tensor | None = None
         self.parameters: list[RangeParameter] | None = None
+        self.bounds: torch.Tensor | None = None
+        # Ax constraint objects from the experiment search space
+        self.parameter_constraints: list[Any] | None = None
+        # BoTorch tuples converted from Ax `self.parameter_constraints`
+        self.inequality_constraints: list[tuple[torch.Tensor, torch.Tensor, float]] | None = None
         self.maximize = maximize
 
         self.sobol = None
+
+    def _parse_inequality_constraints(
+        self,
+        parameter_names: list[str],
+        parameter_constraints: list[Any] | None,
+    ) -> list[tuple[torch.Tensor, torch.Tensor, float]] | None:
+        """Convert Ax constraint objects to BoTorch tuples (indices, coeffs, rhs)."""
+        if not parameter_constraints:
+            return None
+
+        name_to_idx = {name: i for i, name in enumerate(parameter_names)}
+        inequality_constraints: list[tuple[torch.Tensor, torch.Tensor, float]] = []
+
+        for constraint in parameter_constraints:
+            constraint_dict = getattr(constraint, "constraint_dict", None)
+            bound = getattr(constraint, "bound", None)
+            if not constraint_dict or bound is None:
+                continue
+
+            indices = []
+            coeffs = []
+            for name, coeff in constraint_dict.items():
+                if name not in name_to_idx:
+                    raise ValueError(f"Unknown parameter '{name}' in constraint '{constraint}'.")
+                indices.append(name_to_idx[name])
+                coeffs.append(float(coeff))
+
+            inequality_constraints.append(
+                (
+                    torch.tensor(indices, dtype=torch.long, device=self.device),
+                    torch.tensor(coeffs, dtype=self.dtype, device=self.device),
+                    float(bound),
+                )
+            )
+
+        return inequality_constraints or None
 
     def update_generator_state(self, experiment: Experiment, data: Data) -> None:
         """Update the state of the generator with the experiment and data.
@@ -328,6 +417,17 @@ class TurboGenerationNode(ExternalGenerationNode):
 
         if self.parameters is None:
             self.parameters = list(search_space.parameters.values())  # pyright: ignore[reportAttributeAccessIssue]
+            self.bounds = torch.tensor(
+                [[p.lower for p in self.parameters], [p.upper for p in self.parameters]],
+                dtype=self.dtype,
+                device=self.device,
+            )
+            # would need a change if the constraints were not static, right now the are pulled and parsed once during node initialization
+            self.parameter_constraints = getattr(search_space, "parameter_constraints", None) # pull the constraints from the Ax search space object
+            self.inequality_constraints = self._parse_inequality_constraints( # convert Ax constraint objects to BoTorch tuples
+                parameter_names=parameter_names,
+                parameter_constraints=self.parameter_constraints,
+            )
 
         if self.sobol is None:
             self.sobol = SobolEngine(len(parameter_names), scramble=True)
@@ -435,31 +535,27 @@ class TurboGenerationNode(ExternalGenerationNode):
             X_pending = None
 
         X_train, Y_train = self.X_turbo, self.Y_turbo
-        # Orient objective once so acquisition always solves a maximization problem.
-        # flips the signs for minimization problems, and sets y_is_oriented=True to indicate that Y passed to generate_batch is already oriented for maximization
-        Y_for_model = Y_train if self.maximize else -Y_train # Acqf samples from a model aligned with objective direction
 
-
-        # Fit a GP model with Standardize transform (handles standardization automatically)
-        # The posterior is in original scale, so we pass original Y to generate_batch
+        # Fit a GP model in raw target space to preserve direct interpretability/export.
         model = fit_gp(
             X_train,
-            Y_for_model,
+            Y_train,
             normalize_inputs=False,  # Already normalized to [0,1]
             standardize_outputs=True,
             max_cholesky_size=self.model_options.get("max_cholesky_size", float("inf")),
         )
 
-        # Create a batch using the same oriented target used for GP fitting.
+        # Generate candidates; TS/EI handle minimize via acquisition-time transforms.
         X_next = self.state.generate_batch(
             model=model,
             X=X_train,
             X_pending=X_pending,
-            Y=Y_for_model,
+            Y=Y_train,
             batch_size=self.batch_size,
             acqf=self.acqf,  # pyright: ignore[reportArgumentType]
             acqf_kwargs=self.acqf_kwargs,
-            y_is_oriented=True, # flag to indicate that Y passed to generate_batch is already oriented(flipped if minimize) for maximization from the Y_for_model variable
+            inequality_constraints=self.inequality_constraints,
+            bounds=self.bounds,
         )
 
         X_next_unnormalized = self.from_unit_cube(X_next)
