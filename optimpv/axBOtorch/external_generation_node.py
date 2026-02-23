@@ -2,7 +2,6 @@
 
 # pyright: basic
 
-import logging
 import math
 from typing import Any, Literal, Self, override
 
@@ -26,8 +25,6 @@ from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from pydantic import BaseModel
 from torch.quasirandom import SobolEngine
-
-logger = logging.getLogger(__name__) # for warnings about reduced candidate sets due to constraints
 
 
 def fit_gp(
