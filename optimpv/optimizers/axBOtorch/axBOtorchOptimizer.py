@@ -652,6 +652,10 @@ class axBOtorchOptimizer(BaseAgent):
         if outcome_constraints is not None:
             raise ValueError('Turbo does not support outcome constraints')  
         
+        for par in self.params:
+            if par.stepsize is not None:
+                raise ValueError('Turbo does not support parameters with stepsize')
+        
         # check if we have a single objective
         got_MOO = False
         if "," in objective:  # Multiple objectives in string format

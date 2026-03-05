@@ -47,7 +47,7 @@ class BaseAgent():
                     else:
                         param.value = float(parameters[param.name])*param.fscale
                 elif param.value_type == 'int':
-                    param.value = parameters[param.name]*param.stepsize
+                    param.value = parameters[param.name]#*param.stepsize
                 elif param.value_type == 'str':
                     param.value = str(parameters[param.name])
                 elif param.value_type == 'cat' or param.value_type == 'sub':
@@ -91,10 +91,8 @@ class BaseAgent():
                             param.value = 10**float(parameters[param.name])
                             dum_dict[param.name] = 10**float(parameters[param.name])
                         else:
-                            param.value = float(parameters[param.name])*param.fscale
                             dum_dict[param.name] = float(parameters[param.name])*param.fscale
                     elif param.value_type == 'int':
-                        param.value = parameters[param.name]*param.stepsize
                         dum_dict[param.name] = parameters[param.name]*param.stepsize
                     elif param.value_type == 'str':
                         param.value = str(parameters[param.name])
@@ -200,7 +198,7 @@ class BaseAgent():
                 else:
                     df[param.name] = df[param.name]*param.fscale
             elif param.value_type == 'int':
-                df[param.name] = df[param.name]*param.stepsize
+                df[param.name] = df[param.name]#*param.stepsize
             elif param.value_type == 'str':
                 df[param.name] = df[param.name].astype(str)
             elif param.value_type == 'cat' or param.value_type == 'sub':
@@ -237,7 +235,7 @@ class BaseAgent():
                 else:
                     df[param.name] = df[param.name]/param.fscale
             elif param.value_type == 'int':
-                df[param.name] = df[param.name]/param.stepsize
+                df[param.name] = df[param.name]#/param.stepsize
                 # convert to integer type
                 df[param.name] = df[param.name].astype(int)
             elif param.value_type == 'str':
@@ -420,8 +418,8 @@ class BaseAgent():
                         descale_bounds[0].append(bounds[0][j]/param.fscale)
                         descale_bounds[1].append(bounds[1][j]/param.fscale)
                 elif param.value_type == 'int':
-                    descale_bounds[0].append(bounds[0][j]/param.stepsize)
-                    descale_bounds[1].append(bounds[1][j]/param.stepsize)
+                    descale_bounds[0].append(bounds[0][j])#/param.stepsize)
+                    descale_bounds[1].append(bounds[1][j])#/param.stepsize)
                 else:
                     descale_bounds[0].append(bounds[0][j])
                     descale_bounds[1].append(bounds[1][j])
@@ -458,7 +456,7 @@ class BaseAgent():
                                 rescale_array.append(val*param.fscale)
                     elif param.value_type == 'int':
                         for val in array:
-                            rescale_array.append(val*param.stepsize)
+                            rescale_array.append(val)#*param.stepsize)
                     else:
                         for val in array:
                             rescale_array.append(val)

@@ -60,12 +60,15 @@ def ConvertParamsAx(params):
                     if param.log_scale:
                         ax_params.append(RangeParameterConfig(name=param.name, bounds=[param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], parameter_type='float', scaling="log"))
                     else:
-                        ax_params.append(RangeParameterConfig(name=param.name, bounds=[param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], parameter_type='float', scaling="linear"))
+                        if param.stepsize is not None:
+                            ax_params.append(RangeParameterConfig(name=param.name, bounds=[param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], parameter_type='float', scaling="linear", step_size=param.stepsize/param.fscale))
+                        else:
+                            ax_params.append(RangeParameterConfig(name=param.name, bounds=[param.bounds[0]/param.fscale, param.bounds[1]/param.fscale], parameter_type='float', scaling="linear"))
         elif param.value_type == 'int':
             if param.type == 'fixed':
                 fixed_params[param.name] = int(param.value)
             else:
-                ax_params.append(RangeParameterConfig(name=param.name, bounds=[int(param.bounds[0]/param.stepsize), int(param.bounds[1]/param.stepsize)], parameter_type='int', scaling="linear"))
+                ax_params.append(RangeParameterConfig(name=param.name, bounds=[param.bounds[0], param.bounds[1]], parameter_type='int', scaling="linear", step_size=param.stepsize))
         elif param.value_type == 'cat' or param.value_type == 'sub' or param.value_type == 'str': 
             if param.type == 'fixed':
                 fixed_params[param.name] = param.value
@@ -78,7 +81,7 @@ def ConvertParamsAx(params):
                 ax_params.append(ChoiceParameterConfig(name=param.name, values=[True, False], parameter_type='bool'))
         else:
             raise ValueError('Failed to convert parameter name: {} to Ax format'.format(param.name))
-
+    print('ax_params: ', ax_params)
     return ax_params,fixed_params
 
 def CreateObjectiveFromAgent(agent):
@@ -228,7 +231,7 @@ def get_df_ax_client_metrics(params, ax_client, all_metrics):
                 df[par.name] = par.value
             else:
                 if par.value_type == 'int':
-                    df[par.name] = df[par.name] * par.stepsize
+                    df[par.name] = df[par.name] #* par.stepsize
                 elif par.value_type == 'float':
                     if par.force_log:
                         df[par.name] = 10 ** df[par.name]

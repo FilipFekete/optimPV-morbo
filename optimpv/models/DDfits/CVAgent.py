@@ -322,7 +322,7 @@ class CVAgent(SIMsalabimAgent):
             Dictionary with the target metric value.
         """  
         df = self.run_CV_simulation(parameters)
-        if df is np.nan:
+        if df is np.nan or len(df) == 0:
             dum_dict = {}
             for i in range(len(self.all_agent_metrics)):
                 dum_dict[self.all_agent_metrics[i]] = np.nan
@@ -501,7 +501,7 @@ class CVAgent(SIMsalabimAgent):
 
         df = self.run_CV_simulation(parameters)
 
-        if df is np.nan:
+        if df is np.nan or len(df) == 0:
             return np.nan
 
         if X is None:

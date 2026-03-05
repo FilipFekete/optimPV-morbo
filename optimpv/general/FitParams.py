@@ -33,7 +33,7 @@ class FitParam():
         fscale : float, optional
             order of magnitude of the parameter/scaling factor, by default None
         stepsize : float, optional
-            stepsize for integer parameters (value_type = 'int') can be used by the model to transform the integer given by the optimizer to the actual value, i.e. the optimizer sees integers but the model uses value*stepsize, by default None
+            stepsize can be used for range parameters, by default None
         display_name : str, optional
             name to be displayed in plots, by default ''
         unit : str, optional
@@ -149,10 +149,9 @@ class FitParam():
                 self.rescale = False
                 self.fscale = 1
             else:
-                if not self.rescale:
+                if not self.rescale :
                     self.fscale = 1
                 if self.fscale is None:
-                    
                     if self.start_value is not None:
                         self.fscale = 10**np.floor(np.log10(abs(self.start_value)))
                     else:
@@ -163,12 +162,13 @@ class FitParam():
                                 self.fscale = 10**np.floor(np.log10(abs(self.bounds[0] + self.bounds[1]))) # take the one that is not zero
                         elif self.type == 'choice':
                             self.fscale = 10**np.floor(np.mean(np.log10([abs(val) for val in self.values]))) # geometric mean of the values
-                        
+                    
         else:
             self.fscale = 1 # not necessary for int, cat, sub, str, bool but we set it to 1 to avoid errors
 
-        if self.value_type == 'int' and self.stepsize is None:
-            self.stepsize = 1
+        # if self.value_type == 'int' and self.stepsize is None:
+        #     self.stepsize = 1
+      
             
         
     def __repr__(self):
