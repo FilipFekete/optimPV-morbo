@@ -40,6 +40,8 @@ from ax.utils.common.logger import set_ax_logger_levels
 
 from optimpv import *
 from optimpv.optimizers.axBOtorch.axUtils import *
+from optimpv.optimizers.axBOtorch.TuRBOGenerationNode import TuRBOGenerationNode
+from optimpv.optimizers.axBOtorch.TuRBOGenerationNode import TuRBOGlobalStoppingStrategy
 from optimpv.general.logger import get_logger, _round_floats_for_logging
 from optimpv.general.BaseAgent import BaseAgent
 
@@ -178,6 +180,13 @@ class axBOtorchOptimizer(BaseAgent):
                 generators.append(node_name)
                 names.append(node_name)
                 continue
+
+            if type(model) == str and model.lower() == 'turbo':
+                node_name = 'TuRBO'
+                Gen_strat_name += 'TuRBO+'
+                generators.append(node_name)
+                names.append(node_name)
+                continue
                 
             if type(model) == str:
                 node_name = model
@@ -208,7 +217,41 @@ class axBOtorchOptimizer(BaseAgent):
                 # built-in transition criteria that transitions after generating once.
                 nodes_list.append(CenterGenerationNode(next_node_name=names[i+1]))
                 continue
+            
+            if names[i].lower() == 'turbo':
+                # Turbo node is a customized node that uses a simplified logic and has a
+                # built-in transition criteria that transitions after generating once.
+                # check if we minimize (objective string starts with -)
+                objective = self.create_objectives()
+                if "," in objective:  # Multiple objectives in string format
+                    raise ValueError('TuRBOGenerationNode does not support multiple objectives')
+                num_free_params = len([p for p in self.params if p.type != 'fixed'])
+                minimize = objective.startswith('-')
+                acq = self.model_kwargs_list[i].get('acq', 'ei')
+                acqf_kwargs = self.model_kwargs_list[i].get('acqf_kwargs', {})
+                if acqf_kwargs is None or acqf_kwargs == {}:
+                    if acq == 'ei':
+                        acqf_kwargs = {"raw_samples": 512, "num_restarts": 10}
+                    elif acq == 'ts':
+                        acqf_kwargs = {"n_candidates": min(10000, max(2000, 200 * num_free_params))}
+                tkwargs = {}
+                if self.model_kwargs_list[i].get("torch_device") is not None:
+                    tkwargs["device"] = self.model_kwargs_list[i].get("torch_device")
+                else:
+                    tkwargs["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                if self.model_kwargs_list[i].get("torch_dtype") is not None:
+                    tkwargs["dtype"] = self.model_kwargs_list[i].get("torch_dtype")
+                print(acq)
+                nodes_list.append(TuRBOGenerationNode(name=names[i], 
+                                                      model_options=self.model_kwargs_list[i],
+                                                      batch_size=self.batch_size[i],
+                                                      acqf=acq,
+                                                      acqf_kwargs=acqf_kwargs,
+                                                      **tkwargs,
+                                                      maximize=not minimize,
+                                                      ))
 
+                continue
             # Create the generator spec
             generator_spec = GeneratorSpec(
                                             generator_enum=model,
@@ -216,6 +259,7 @@ class axBOtorchOptimizer(BaseAgent):
                                             # We can specify various options for the optimizer here.
                                             model_gen_kwargs = self.model_gen_kwargs_list[i], 
             )
+
             # Create the generation node
             if i < len(self.models)-1:
                 node = GenerationNode(
@@ -526,6 +570,19 @@ class axBOtorchOptimizer(BaseAgent):
                         logger.info(f"Trial {trial_index_} failed with results: {raw_data} and parameters: {parameters[idx]}")
                     self.ax_client.mark_trial_failed(trial_index_)
                 idx += 1
+
+            # check global stopping strategy
+            if global_stopping_strategy is not None:
+                if isinstance(global_stopping_strategy, TuRBOGlobalStoppingStrategy):
+                    stop, message = global_stopping_strategy.should_stop_optimization(self.ax_client._experiment,client=self.ax_client)
+                else:
+                    stop, message = global_stopping_strategy.should_stop_optimization(self.ax_client._experiment)
+                if stop:
+                    if verbose_logging:
+                        logging_level = 20
+                        logger.setLevel(logging_level)
+                        logger.info(f"Global stopping strategy triggered: {message}")
+                    break
 
 
     def update_params_with_best_balance(self,return_best_balance=False):

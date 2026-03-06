@@ -81,7 +81,7 @@ def ConvertParamsAx(params):
                 ax_params.append(ChoiceParameterConfig(name=param.name, values=[True, False], parameter_type='bool'))
         else:
             raise ValueError('Failed to convert parameter name: {} to Ax format'.format(param.name))
-    print('ax_params: ', ax_params)
+ 
     return ax_params,fixed_params
 
 def CreateObjectiveFromAgent(agent):
