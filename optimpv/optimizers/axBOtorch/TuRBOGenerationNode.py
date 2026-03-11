@@ -1,7 +1,7 @@
 """Trust Region Bayesian Optimization (TuRBO) generation node for us in Ax."""
 
 # Co-authored-by: Rhys Goodall <rhys.goodall@outlook.com> 
-# Adapted by @VMLC-PV and @Filip Fekete from the original code by Rhys Goodall, 
+# Adapted by @VMLC-PV and @FilipFekete from the original code by Rhys Goodall, 
 # see original code and discussion in the Ax repository:
 # https://github.com/facebook/Ax/issues/4801
 #
@@ -396,6 +396,10 @@ class TuRBOGenerationNode(ExternalGenerationNode):
         self.inequality_constraints: list[tuple[torch.Tensor, torch.Tensor, float]] | None = None
         self.maximize = maximize
         self.sobol = None
+        # TuRBO batch points put into queue so Ax can consume them one by one
+        self.candidate_queue: list[dict[str, float]] = []
+        # Use rounded parameter tuples for duplicate checks against pending trials, precision for comparisoncan be configured via `param_key_precision` in `model_options` (default: 12, which is around the precision of a 64-bit float)
+        self.param_key_precision = int(self.model_options.get("param_key_precision", 12))
 
     def _parse_inequality_constraints(
         self,
@@ -494,6 +498,8 @@ class TuRBOGenerationNode(ExternalGenerationNode):
         X_normalized = X_normalized[~torch.isnan(X_normalized).any(dim=1)]
         self.state = self.state.update_state(Y_next=Y_new)
 
+        self.candidate_queue.clear() 
+
         self.X_turbo = X_normalized
         self.Y_turbo = Y_new
 
@@ -532,6 +538,58 @@ class TuRBOGenerationNode(ExternalGenerationNode):
         )
         return X * (upper_bounds - lower_bounds) + lower_bounds
 
+    def _key(self, params: dict[str, Any]) -> tuple[Any, ...]:
+        """Create a stable key for duplicate checks against pending Ax trials."""
+        if self.parameters is None:
+            raise RuntimeError("Generator state not initialized. Call update_generator_state first.")
+
+        key_vals: list[Any] = []
+        for p in self.parameters:
+            value = params[p.name]
+            if "int" in str(p.parameter_type).lower():
+                key_vals.append(int(value))
+            else:
+                key_vals.append(round(float(value), self.param_key_precision))
+        return tuple(key_vals)
+
+    def _enqueue_batch_from_turbo(self, X_pending: torch.Tensor | None) -> None:
+        """Generate a TuRBO batch once and queue points for Ax ingestion."""
+        if self.X_turbo is None or self.Y_turbo is None or self.state is None or self.parameters is None:
+            raise RuntimeError("Generator state not initialized. Call update_generator_state first.")
+
+        X_train, Y_train = self.X_turbo, self.Y_turbo
+        
+        # Fit a GP model in raw target space to preserve direct interpretability/export.
+        # Fit the GP once for the full TuRBO batch.
+        model = fit_gp(
+            X_train,
+            Y_train,
+            normalize_inputs=False,  # Already normalized to [0,1]
+            standardize_outputs=True,
+            max_cholesky_size=self.model_options.get("max_cholesky_size", float("inf")),
+        )
+
+        # Generate candidates; TS/EI handle minimize via acquisition-time transforms.
+        X_next = self.state.generate_batch(
+            model=model,
+            X=X_train,
+            X_pending=X_pending,
+            Y=Y_train,
+            batch_size=self.batch_size,
+            acqf=self.acqf,  # pyright: ignore[reportArgumentType]
+            acqf_kwargs=self.acqf_kwargs,
+            inequality_constraints=self.inequality_constraints,
+            bounds=self.bounds,
+        )
+
+        X_next_unnormalized = self.from_unit_cube(X_next)
+        # Convert the sample to a parameterization. Multiple candidate dicts can be queued.
+        for candidate in X_next_unnormalized:
+            params: dict[str, float] = {}
+            for idx, p in enumerate(self.parameters):
+                params[p.name] = float(candidate[idx].item())
+            self.candidate_queue.append(params)
+
     @override
     def get_next_candidate(self, pending_parameters: list[TParameterization]) -> TParameterization:
         """Get the parameters for the next candidate configuration to evaluate.
@@ -568,40 +626,25 @@ class TuRBOGenerationNode(ExternalGenerationNode):
         else:
             X_pending = None
 
-        X_train, Y_train = self.X_turbo, self.Y_turbo
+        pending_keys: set[tuple[Any, ...]] = set()
+        for pending in pending_parameters:
+            try:
+                pending_keys.add(self._key(dict(pending))) # convert into tuple
+            except Exception:
+                continue
 
-        # Fit a GP model in raw target space to preserve direct interpretability/export.
-        model = fit_gp(
-            X_train,
-            Y_train,
-            normalize_inputs=False,  # Already normalized to [0,1]
-            standardize_outputs=True,
-            max_cholesky_size=self.model_options.get("max_cholesky_size", float("inf")),
-        )
+        draws = 0
+        max_draws = max(10, 5 * self.batch_size) # safety/avoid infinite loops when queued candidates are skipped because they duplicate pending one
+        while True:
+            if len(self.candidate_queue) == 0: # if queue is empty, generate a new batch
+                self._enqueue_batch_from_turbo(X_pending=X_pending)
 
-        # Generate candidates; TS/EI handle minimize via acquisition-time transforms.
-        X_next = self.state.generate_batch(
-            model=model,
-            X=X_train,
-            X_pending=X_pending,
-            Y=Y_train,
-            batch_size=1,#self.batch_size,
-            acqf=self.acqf,  # pyright: ignore[reportArgumentType]
-            acqf_kwargs=self.acqf_kwargs,
-            inequality_constraints=self.inequality_constraints,
-            bounds=self.bounds,
-        )
-
-        X_next_unnormalized = self.from_unit_cube(X_next)
-
-        # Convert the sample to a parameterization.
-        return dict(
-            zip(
-                [p.name for p in self.parameters],
-                X_next_unnormalized.ravel().detach().tolist(),
-                strict=True,
-            )
-        )
+            params = self.candidate_queue.pop(0)
+            key = self._key(params) 
+            if key in pending_keys and draws < max_draws: 
+                draws += 1
+                continue
+            return params
 
 
 class TuRBOGlobalStoppingStrategy(BaseGlobalStoppingStrategy):

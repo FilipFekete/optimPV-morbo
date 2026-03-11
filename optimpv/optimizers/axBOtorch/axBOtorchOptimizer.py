@@ -42,6 +42,7 @@ from optimpv import *
 from optimpv.optimizers.axBOtorch.axUtils import *
 from optimpv.optimizers.axBOtorch.TuRBOGenerationNode import TuRBOGenerationNode
 from optimpv.optimizers.axBOtorch.TuRBOGenerationNode import TuRBOGlobalStoppingStrategy
+from optimpv.optimizers.axBOtorch.MorboGenerationNode import MorboGenerationNode
 from optimpv.general.logger import get_logger, _round_floats_for_logging
 from optimpv.general.BaseAgent import BaseAgent
 
@@ -183,7 +184,14 @@ class axBOtorchOptimizer(BaseAgent):
 
             if type(model) == str and model.lower() == 'turbo':
                 node_name = 'TuRBO'
-                Gen_strat_name += 'TuRBO+'
+                Gen_strat_name += 'TuRBO'
+                generators.append(node_name)
+                names.append(node_name)
+                continue
+
+            if type(model) == str and model.lower() == 'morbo':
+                node_name = 'MORBO'
+                Gen_strat_name += 'MORBO'
                 generators.append(node_name)
                 names.append(node_name)
                 continue
@@ -219,9 +227,7 @@ class axBOtorchOptimizer(BaseAgent):
                 continue
             
             if names[i].lower() == 'turbo':
-                # Turbo node is a customized node that uses a simplified logic and has a
-                # built-in transition criteria that transitions after generating once.
-                # check if we minimize (objective string starts with -)
+                # Turbo node is a customized node 
                 objective = self.create_objectives()
                 if "," in objective:  # Multiple objectives in string format
                     raise ValueError('TuRBOGenerationNode does not support multiple objectives')
@@ -241,7 +247,6 @@ class axBOtorchOptimizer(BaseAgent):
                     tkwargs["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 if self.model_kwargs_list[i].get("torch_dtype") is not None:
                     tkwargs["dtype"] = self.model_kwargs_list[i].get("torch_dtype")
-                print(acq)
                 nodes_list.append(TuRBOGenerationNode(name=names[i], 
                                                       model_options=self.model_kwargs_list[i],
                                                       batch_size=self.batch_size[i],
@@ -249,6 +254,26 @@ class axBOtorchOptimizer(BaseAgent):
                                                       acqf_kwargs=acqf_kwargs,
                                                       **tkwargs,
                                                       maximize=not minimize,
+                                                      ))
+
+                continue
+
+            if names[i].lower() == 'morbo':
+                objective = self.create_objectives()
+                if "," not in objective:  # Multiple objectives in string format
+                    raise ValueError('MorboGenerationNode only supports multiple objectives')
+               
+                tkwargs = {}
+                if self.model_kwargs_list[i].get("torch_device") is not None:
+                    tkwargs["device"] = self.model_kwargs_list[i].get("torch_device")
+                else:
+                    tkwargs["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                if self.model_kwargs_list[i].get("torch_dtype") is not None:
+                    tkwargs["dtype"] = self.model_kwargs_list[i].get("torch_dtype")
+                nodes_list.append(MorboGenerationNode(name=names[i], 
+                                                      model_options=self.model_kwargs_list[i],
+                                                      batch_size=self.batch_size[i],
+                                                      **tkwargs,
                                                       ))
 
                 continue
