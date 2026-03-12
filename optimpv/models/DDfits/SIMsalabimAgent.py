@@ -52,7 +52,9 @@ class SIMsalabimAgent(BaseAgent):
                     else:
                         dummy_pars[param.name] = param.value/param.fscale
                 elif param.value_type == 'int':
-                    dummy_pars[param.name] = param.value/param.stepsize
+                    # if param.stepsize is not None:
+                    dummy_pars[param.name] = param.value#/param.stepsize
+                    
                 else:
                     dummy_pars[parameters.name] = parameters.value
             # parameters = dummy_pars
@@ -131,7 +133,7 @@ class SIMsalabimAgent(BaseAgent):
                 if param.value_type == 'float':
                     dummy_pars[param.name] = param.value/param.fscale
                 elif param.value_type == 'int':
-                    dummy_pars[param.name] = param.value/param.stepsize
+                    dummy_pars[param.name] = param.value#/param.stepsize
                 else:
                     dummy_pars[parameters.name] = parameters.value
         else:
@@ -680,7 +682,7 @@ class SIMsalabimAgent(BaseAgent):
                                     else:
                                         clean_pars.append({'par': param.name, 'val': str(parameters[param.name]*param.fscale)})
                                 elif param.value_type == 'int':
-                                    clean_pars.append({'par': param.name, 'val': str(int(parameters[param.name]*param.stepsize))})
+                                    clean_pars.append({'par': param.name, 'val': str(int(parameters[param.name]))})#*param.stepsize))})
                                 else:
                                     clean_pars.append({'par': param.name, 'val': str(parameters[param.name])})
                             else:
@@ -691,7 +693,7 @@ class SIMsalabimAgent(BaseAgent):
                                     else:
                                         custom_pars.append({'par': param.name, 'val': str(parameters[param.name]*param.fscale)})
                                 elif param.value_type == 'int':
-                                    custom_pars.append({'par': param.name, 'val': str(int(parameters[param.name]*param.stepsize))})
+                                    custom_pars.append({'par': param.name, 'val': str(int(parameters[param.name]))})#*param.stepsize))})
                                 else:
                                     custom_pars.append({'par': param.name, 'val': str(parameters[param.name])})
                         else:
@@ -704,7 +706,7 @@ class SIMsalabimAgent(BaseAgent):
                                 else:
                                     clean_pars.append({'par': param.name, 'val': str(parameters[param.name]*param.fscale)})
                             elif param.value_type == 'int':
-                                clean_pars.append({'par': param.name, 'val': str(int(parameters[param.name]*param.stepsize))})
+                                clean_pars.append({'par': param.name, 'val': str(int(parameters[param.name]))})#*param.stepsize))})
                             else:
                                 clean_pars.append({'par': param.name, 'val': str(parameters[param.name])})
                         else:
@@ -716,7 +718,7 @@ class SIMsalabimAgent(BaseAgent):
                                     else:
                                         custom_pars.append({'par': param.name, 'val': str(parameters[param.name]*param.fscale)})
                                 elif param.value_type == 'int':
-                                    custom_pars.append({'par': param.name, 'val': str(int(parameters[param.name]*param.stepsize))})
+                                    custom_pars.append({'par': param.name, 'val': str(int(parameters[param.name]))})#*param.stepsize))})
                                 else:
                                     custom_pars.append({'par': param.name, 'val': str(parameters[param.name])})
                             else:
