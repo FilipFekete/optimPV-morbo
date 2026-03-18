@@ -43,6 +43,7 @@ from optimpv.optimizers.axBOtorch.axUtils import *
 from optimpv.optimizers.axBOtorch.TuRBOGenerationNode import TuRBOGenerationNode
 from optimpv.optimizers.axBOtorch.TuRBOGenerationNode import TuRBOGlobalStoppingStrategy
 from optimpv.optimizers.axBOtorch.MorboGenerationNode import MorboGenerationNode
+from optimpv.optimizers.axBOtorch.REITuRBOGenerationNode import REITuRBOGenerationNode
 from optimpv.general.logger import get_logger, _round_floats_for_logging
 from optimpv.general.BaseAgent import BaseAgent
 
@@ -195,6 +196,13 @@ class axBOtorchOptimizer(BaseAgent):
                 generators.append(node_name)
                 names.append(node_name)
                 continue
+
+            if type(model) == str and model.lower() in ('rei_turbo', 'reiturbo'):
+                node_name = 'REITuRBO'
+                Gen_strat_name += 'REITuRBO'
+                generators.append(node_name)
+                names.append(node_name)
+                continue
                 
             if type(model) == str:
                 node_name = model
@@ -277,6 +285,36 @@ class axBOtorchOptimizer(BaseAgent):
                                                       ))
 
                 continue
+            
+            if names[i].lower() == 'reiturbo':
+                objective = self.create_objectives()
+                if "," in objective:
+                    raise ValueError('REITuRBOGenerationNode does not support multiple objectives')
+
+                minimize = objective.startswith('-')
+                acq = self.model_kwargs_list[i].get('acq', 'ts')
+                tkwargs = {}
+                if self.model_kwargs_list[i].get("torch_device") is not None:
+                    tkwargs["device"] = self.model_kwargs_list[i].get("torch_device")
+                else:
+                    tkwargs["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                if self.model_kwargs_list[i].get("torch_dtype") is not None:
+                    tkwargs["dtype"] = self.model_kwargs_list[i].get("torch_dtype")
+
+                # REI-TuRBO uses REI for region seeding and TS/EI for local trust-region steps.
+                nodes_list.append(
+                    REITuRBOGenerationNode(
+                        name=names[i],
+                        model_options=self.model_kwargs_list[i],
+                        batch_size=self.batch_size[i],
+                        acqf=acq,
+                        **tkwargs,
+                        maximize=not minimize,
+                    )
+                )
+
+                continue
+
             # Create the generator spec
             generator_spec = GeneratorSpec(
                                             generator_enum=model,
