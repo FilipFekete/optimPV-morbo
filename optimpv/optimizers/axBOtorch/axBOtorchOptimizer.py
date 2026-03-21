@@ -292,7 +292,20 @@ class axBOtorchOptimizer(BaseAgent):
                     raise ValueError('REITuRBOGenerationNode does not support multiple objectives')
 
                 minimize = objective.startswith('-')
+
                 acq = self.model_kwargs_list[i].get('acq', 'ts')
+                if self.batch_size[i] > 1 and acq.lower() != "ts":
+                    raise ValueError(
+                        "REITuRBOGenerationNode currently requires acq='ts' when batch_size > 1. "
+                        "Local EI uses qLogExpectedImprovement, which returns a batch-level score "
+                        "and is currently not compatible with the node's percandidate ranking among regions."
+                    )
+                
+                region_init_points = self.model_kwargs_list[i].get("region_init_points")
+                if region_init_points % self.batch_size[i] != 0:
+                    raise ValueError("region_init_points must be a multiple of batch_size. "
+                                     "Otherwise, the initial seeding and restart logic of the TRs will not work properly.")
+                
                 tkwargs = {}
                 if self.model_kwargs_list[i].get("torch_device") is not None:
                     tkwargs["device"] = self.model_kwargs_list[i].get("torch_device")
