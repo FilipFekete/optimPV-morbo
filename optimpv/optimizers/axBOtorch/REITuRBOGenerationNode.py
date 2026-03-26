@@ -317,16 +317,7 @@ class REITuRBOGenerationNode(ExternalGenerationNode):
             # so we implement global pooling across all candidate rows.
             # qEI/qLogEI with q>1 returns one joint score for the whole region batch,
             # so rank region batches against each other and enqueue the winning batch.
-            is_batch_scored = acq_flat.numel() == 1 # check whether the acqf produced one score for the whole batch, qEI with q>1 
-            if is_batch_scored:
-                region_candidates.append(
-                    {
-                        "params_list": params_list,
-                        "region_index": region_index,
-                        "score": float(acq_flat[0].item()),
-                    }
-                )
-            elif acq_flat.numel() == len(params_list): # if pointwise scores are returned, add them to the pool, EI with q=1 & TS 
+            if acq_flat.numel() == len(params_list):  # Pointwise scores: TS and EI with q=1
                 for row_idx, params in enumerate(params_list):
                     pointwise_candidates.append(
                         {
@@ -335,6 +326,14 @@ class REITuRBOGenerationNode(ExternalGenerationNode):
                             "score": float(acq_flat[row_idx].item()),
                         }
                     )
+            elif acq_flat.numel() == 1:  # Batch score: qEI/qLogEI with q>1
+                region_candidates.append(
+                    {
+                        "params_list": params_list,
+                        "region_index": region_index,
+                        "score": float(acq_flat[0].item()),
+                    }
+                )
             else:
                 raise RuntimeError(
                     "Unexpected acquisition score shape returned by REI-TuRBO local generation."
