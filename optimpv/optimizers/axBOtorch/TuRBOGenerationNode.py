@@ -287,7 +287,6 @@ class TurboState(BaseModel):
                 X_cand_un = X_cand_un[constraint_mask] # keep only filtered candidates in unnormalized space
 
                 # trigger a warning if the constraints are too strict, however, it's likely that there will be an error raised during the initial seeding
-             
                 if X_cand_un.shape[0] == 0:
                     raise RuntimeError(
                         "No candidates left after applying constraints. "
