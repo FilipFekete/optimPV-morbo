@@ -6,7 +6,7 @@ import numpy as np
 
 from optimpv.general.BaseAgent import BaseAgent
 from optimpv.general.general import loss_function
-from optimpv.models.Hartmann.HartmannModel import HartmannModel
+from optimpv.tests.Hartmann.HartmannModel import HartmannModel
 
 
 class HartmannAgent(BaseAgent):
