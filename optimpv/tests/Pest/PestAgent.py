@@ -4,7 +4,7 @@ import numpy as np
 
 from optimpv.general.BaseAgent import BaseAgent
 from optimpv.general.general import loss_function
-from optimpv.models.Pest.PestModel import PestModel
+from .PestModel import PestModel
 
 
 class PestAgent(BaseAgent):
